@@ -1,0 +1,17 @@
+# Core ML and Computer Vision
+tensorflow-lite-runtime>=2.8.0
+opencv-python>=4.5.0
+numpy>=1.21.0
+pillow>=8.0.0
+
+# Raspberry Pi Camera
+picamera2>=0.3.0
+
+# GUI (using Tkinter - built into Python, no extra install needed)
+# Note: Tkinter is included with Python standard library
+
+# Optional: For older camera modules
+# picamera>=1.13
+
+# Development and utilities
+setuptools>=45.0.0 
