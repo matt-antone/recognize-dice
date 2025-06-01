@@ -17,11 +17,12 @@ Real-time dice recognition application optimized for Raspberry Pi 3 with camera 
 - Simple, lightweight user interface
 - Support for standard D6 dice
 - Confidence scoring for reliable detection
+- Fallback computer vision when ML model unavailable
 
 ## Performance Expectations (Pi 3)
 
 - **Frame Rate**: 3-5 FPS
-- **Accuracy**: >90% for well-lit conditions
+- **Accuracy**: >90% for well-lit conditions (with ML model)
 - **Startup Time**: ~15 seconds
 - **Memory Usage**: <800MB
 
@@ -29,11 +30,11 @@ Real-time dice recognition application optimized for Raspberry Pi 3 with camera 
 
 ### 1. Setup Environment
 
-```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+**Option A: Automatic Installation (Recommended)**
 
-# Install system dependencies
+```bash
+# Update system (on Raspberry Pi)
+sudo apt update && sudo apt upgrade -y
 sudo apt install python3-pip python3-venv python3-tk
 sudo apt install libcamera-dev python3-opencv
 
@@ -45,15 +46,36 @@ cd recognize-dice
 python3 -m venv dice_env
 source dice_env/bin/activate
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Run platform-specific installer
+python3 install_deps.py
 ```
 
-### 2. Test Camera
+**Option B: Manual Installation**
 
 ```bash
-# Test camera functionality
-python3 -c "from picamera2 import Picamera2; print('Camera test passed')"
+# Create virtual environment
+python3 -m venv dice_env
+source dice_env/bin/activate
+
+# Install base requirements
+pip install opencv-python numpy pillow psutil
+
+# Platform-specific TensorFlow Lite:
+# On Raspberry Pi 3:
+pip install tensorflow-lite-runtime>=2.8.0
+
+# On development machines (macOS/Windows/Linux):
+pip install tensorflow>=2.8.0
+
+# Camera support (Raspberry Pi only):
+pip install picamera2  # or picamera for older setups
+```
+
+### 2. Test Installation
+
+```bash
+# Test dependencies and camera
+python3 test_camera.py
 ```
 
 ### 3. Run Application
@@ -63,11 +85,35 @@ source dice_env/bin/activate
 python3 main.py
 ```
 
+## Platform Support
+
+### Raspberry Pi 3 (Target Platform)
+
+- **Full functionality**: Camera + ML model + GUI
+- **Optimized performance**: Frame skipping, memory streaming
+- **TensorFlow Lite**: Lightweight ML inference
+
+### Development Platforms (macOS/Windows/Linux)
+
+- **Limited functionality**: GUI + fallback detection only
+- **No camera**: Uses simulated or imported images
+- **Full TensorFlow**: For model development and testing
+
+### Testing on Development Machines
+
+Even without a Pi camera, you can test the GUI and fallback detection:
+
+```bash
+python3 main.py  # Will show GUI with fallback CV detection
+```
+
 ## Project Structure
 
 ```
 recognize-dice/
 ├── main.py              # Main application entry point
+├── test_camera.py       # Camera testing utility
+├── install_deps.py      # Platform-specific installer
 ├── src/
 │   ├── camera/          # Camera interface modules
 │   ├── detection/       # AI model and processing
@@ -81,11 +127,11 @@ recognize-dice/
 
 ## Configuration
 
-### Camera Settings
+### Camera Settings (Pi 3 Optimized)
 
-- Resolution: 320x320 (optimized for Pi 3)
+- Resolution: 320x320 (reduced for performance)
 - Format: RGB24
-- Frame rate: Limited by processing speed
+- Frame rate: 3-5 FPS actual (15 FPS max)
 
 ### Model Settings
 
@@ -95,9 +141,17 @@ recognize-dice/
 
 ## Troubleshooting
 
-### Common Issues
+### Installation Issues
 
-**Camera not detected:**
+**TensorFlow Lite not available:**
+
+```bash
+# The app will automatically use fallback detection
+# This is normal on development platforms
+python3 main.py  # Still works with computer vision fallback
+```
+
+**Camera not detected (Raspberry Pi):**
 
 ```bash
 # Check camera connection
@@ -107,6 +161,18 @@ vcgencmd get_camera
 sudo raspi-config
 # Navigate to Interface Options > Camera > Enable
 ```
+
+**Import errors:**
+
+```bash
+# Re-run the installer
+python3 install_deps.py
+
+# Or check what's missing
+python3 -c "import cv2, numpy, PIL, tkinter; print('Core deps OK')"
+```
+
+### Performance Issues
 
 **Memory errors:**
 
@@ -124,15 +190,21 @@ sudo raspi-config
 
 - Improve lighting conditions
 - Use dice with clear, contrasting dots
-- Adjust confidence thresholds
+- Adjust confidence thresholds in config
 
 ## Development
+
+### Cross-Platform Development
+
+1. **Develop on any platform**: macOS/Windows/Linux supported
+2. **Test locally**: Use fallback detection for GUI testing
+3. **Deploy to Pi**: Full functionality with camera and ML model
 
 ### Adding New Features
 
 1. Check memory-bank/ documentation for project context
 2. Follow established patterns in src/ modules
-3. Test on actual Pi 3 hardware
+3. Test on actual Pi 3 hardware when possible
 
 ### Performance Optimization
 
@@ -140,9 +212,17 @@ sudo raspi-config
 - Monitor memory usage with `psutil`
 - Test thermal performance during extended use
 
-## Based on Reference Work
+## Model Integration
 
-This project adapts techniques from [nell-byler/dice_detection](https://github.com/nell-byler/dice_detection) for Raspberry Pi 3 constraints, using TensorFlow Lite optimization and reduced model complexity.
+The app framework is ready for the TensorFlow Lite model from [nell-byler/dice_detection](https://github.com/nell-byler/dice_detection). Currently uses fallback computer vision detection until the model is converted and integrated.
+
+### Current Status
+
+- ✅ **Application framework**: Complete and working
+- ✅ **Camera interface**: Pi 3 optimized with dual compatibility
+- ✅ **GUI system**: Lightweight Tkinter interface
+- ✅ **Fallback detection**: Computer vision using HoughCircles
+- 🔄 **ML model**: Framework ready, needs model conversion
 
 ## License
 
@@ -150,10 +230,11 @@ BSD-3-Clause (following reference project)
 
 ## Contributing
 
-1. Test changes on actual Pi 3 hardware
+1. Test changes on actual Pi 3 hardware when possible
 2. Update memory-bank/ documentation for significant changes
 3. Maintain performance targets for Pi 3 constraints
+4. Use cross-platform development approach
 
 ---
 
-**Note**: This application is specifically optimized for Raspberry Pi 3. For Pi 4 or other hardware, consider adjusting performance targets and model complexity in the configuration.
+**Note**: This application works on development platforms for testing the GUI and fallback detection, but full functionality (camera + ML model) requires Raspberry Pi 3 hardware.
