@@ -238,3 +238,15 @@ BSD-3-Clause (following reference project)
 ---
 
 **Note**: This application works on development platforms for testing the GUI and fallback detection, but full functionality (camera + ML model) requires Raspberry Pi 3 hardware.
+
+# If using SSH, enable X11 forwarding:
+
+ssh -X pi@your-pi-ip
+
+# Or if running directly on Pi with monitor:
+
+export DISPLAY=:0
+
+# Or run GUI apps with:
+
+DISPLAY=:0 python3 main.py

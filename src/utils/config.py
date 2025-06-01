@@ -15,7 +15,7 @@ class Config:
         
         # Camera settings (optimized for Pi 3)
         self.camera_resolution = (320, 320)  # Reduced from 640x640 for Pi 3
-        self.camera_format = "RGB888"
+        self.camera_format = "RGB888"  # Standard RGB format
         self.camera_framerate = 15  # Max framerate, actual will be lower
         self.camera_rotation = 0
         

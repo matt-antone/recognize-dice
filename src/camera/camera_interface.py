@@ -58,9 +58,12 @@ class CameraInterface:
             
             self.camera = Picamera2()
             
-            # Configure camera for Pi 3 optimization
-            camera_config = self.config.get_camera_config()
-            self.camera.configure(camera_config)
+            # Use a simpler, more compatible configuration
+            # Configure for preview (which is more compatible)
+            preview_config = self.camera.create_preview_configuration(
+                main={"size": self.config.camera_resolution, "format": "RGB888"}
+            )
+            self.camera.configure(preview_config)
             
             self.logger.info(f"Picamera2 initialized with resolution: {self.config.camera_resolution}")
             return True
