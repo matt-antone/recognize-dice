@@ -13,11 +13,15 @@ class Config:
         # Hardware-specific settings for Pi 3
         self.hardware_platform = "raspberry_pi_3"
         
-        # Camera settings (optimized for Pi 3)
+        # Camera settings (optimized for Pi 3 with AI Camera)
         self.camera_resolution = (320, 320)  # Reduced from 640x640 for Pi 3
-        self.camera_format = "RGB888"  # Standard RGB format
-        self.camera_framerate = 15  # Max framerate, actual will be lower
+        self.camera_format = "RGB888"  # Standard RGB format for AI camera
+        self.camera_framerate = 10  # Conservative for AI camera + Pi 3
         self.camera_rotation = 0
+        
+        # AI Camera specific settings
+        self.ai_camera_mode = True  # Flag for AI camera handling
+        self.disable_raw_capture = True  # Avoid raw capture issues
         
         # Model settings
         self.model_input_size = (320, 320)  # Match camera resolution

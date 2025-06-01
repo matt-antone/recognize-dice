@@ -58,15 +58,41 @@ class CameraInterface:
             
             self.camera = Picamera2()
             
-            # Use a simpler, more compatible configuration
-            # Configure for preview (which is more compatible)
-            preview_config = self.camera.create_preview_configuration(
-                main={"size": self.config.camera_resolution, "format": "RGB888"}
-            )
-            self.camera.configure(preview_config)
+            # For the new Raspberry Pi AI Camera (IMX500), we need special handling
+            self.logger.info("Detected IMX500 AI Camera - using AI camera configuration")
             
-            self.logger.info(f"Picamera2 initialized with resolution: {self.config.camera_resolution}")
-            return True
+            # Try multiple configuration approaches for AI camera
+            configurations_to_try = [
+                # Approach 1: AI camera specific configuration
+                lambda: self.camera.create_preview_configuration(
+                    main={"size": self.config.camera_resolution, "format": "RGB888"},
+                    raw={"size": self.camera.sensor_resolution}
+                ),
+                # Approach 2: Simple preview without raw specification
+                lambda: self.camera.create_preview_configuration(
+                    main={"size": self.config.camera_resolution, "format": "RGB888"}
+                ),
+                # Approach 3: Use default configuration and modify
+                lambda: self._create_ai_camera_config(),
+                # Approach 4: Minimal configuration
+                lambda: self.camera.create_preview_configuration()
+            ]
+            
+            for i, config_func in enumerate(configurations_to_try):
+                try:
+                    self.logger.info(f"Trying AI camera configuration approach {i+1}...")
+                    config = config_func()
+                    self.camera.configure(config)
+                    self.logger.info(f"AI camera initialized successfully with approach {i+1}")
+                    self.logger.info(f"Camera resolution: {self.config.camera_resolution}")
+                    return True
+                except Exception as e:
+                    self.logger.warning(f"AI camera configuration approach {i+1} failed: {e}")
+                    continue
+            
+            # If all configurations failed
+            self.logger.error("All AI camera configuration approaches failed")
+            return False
             
         except ImportError:
             self.logger.debug("picamera2 not available")
@@ -74,6 +100,25 @@ class CameraInterface:
         except Exception as e:
             self.logger.warning(f"Failed to initialize picamera2: {e}")
             return False
+    
+    def _create_ai_camera_config(self):
+        """Create configuration specific for AI camera."""
+        try:
+            # Get the default configuration first
+            config = self.camera.create_preview_configuration()
+            
+            # Modify for our needs without specifying raw
+            config["main"]["size"] = self.config.camera_resolution
+            config["main"]["format"] = "RGB888"
+            
+            # Remove raw configuration if it exists
+            if "raw" in config:
+                del config["raw"]
+            
+            return config
+        except Exception as e:
+            self.logger.error(f"Failed to create AI camera config: {e}")
+            raise
     
     def _try_picamera(self):
         """Try to initialize legacy picamera."""
