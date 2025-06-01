@@ -139,33 +139,65 @@ class DiceDetector:
     
     def _detect_fallback(self, frame: np.ndarray) -> List[DiceDetection]:
         """
-        Fallback detection method using simple computer vision.
-        This provides basic functionality while we work on the ML model.
+        Improved fallback detection method using computer vision.
+        Tuned for real dice detection with motion handling.
         """
         try:
             # Convert to grayscale for processing
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             
-            # Apply Gaussian blur to reduce noise
-            blurred = cv2.GaussianBlur(gray, (9, 9), 2)
+            # Preprocessing for better dice detection
+            # Apply bilateral filter to reduce noise while keeping edges sharp
+            filtered = cv2.bilateralFilter(gray, 9, 75, 75)
             
-            # Use HoughCircles to detect circular shapes (dice)
+            # Apply adaptive histogram equalization for better contrast
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(filtered)
+            
+            # Apply Gaussian blur to smooth for circle detection
+            blurred = cv2.GaussianBlur(enhanced, (5, 5), 1)
+            
+            # Use more aggressive HoughCircles parameters for dice
             circles = cv2.HoughCircles(
                 blurred,
                 cv2.HOUGH_GRADIENT,
-                dp=1,
-                minDist=50,
-                param1=50,
-                param2=30,
-                minRadius=20,
-                maxRadius=100
+                dp=1,                    # Inverse ratio of accumulator resolution
+                minDist=30,             # Minimum distance between circle centers (reduced for smaller dice)
+                param1=100,             # Higher threshold for edge detection
+                param2=25,              # Lower accumulator threshold (more sensitive)
+                minRadius=10,           # Smaller minimum radius for dice
+                maxRadius=80            # Maximum radius for dice
             )
             
             detections = []
             if circles is not None:
                 circles = np.round(circles[0, :]).astype("int")
                 
+                # Filter circles that are likely dice
+                valid_circles = []
                 for (x, y, r) in circles:
+                    # Check if circle is within reasonable bounds
+                    if (r >= 10 and r <= 80 and 
+                        x-r >= 0 and y-r >= 0 and 
+                        x+r < frame.shape[1] and y+r < frame.shape[0]):
+                        
+                        # Extract the circular region
+                        roi = enhanced[y-r:y+r, x-r:x+r]
+                        if roi.size > 0:
+                            # Simple validation: check if it looks like a dice face
+                            # Dice should have relatively uniform background with some variation (dots)
+                            roi_std = np.std(roi)
+                            roi_mean = np.mean(roi)
+                            
+                            # Dice faces typically have moderate contrast (dots on face)
+                            if roi_std > 10 and roi_mean > 50:  # Some variation and not too dark
+                                valid_circles.append((x, y, r, roi_std))
+                
+                # Sort by standard deviation (more variation = more likely to be dice with dots)
+                valid_circles.sort(key=lambda x: x[3], reverse=True)
+                
+                # Take top candidates (limit to reasonable number of dice)
+                for i, (x, y, r, std_val) in enumerate(valid_circles[:6]):  # Max 6 dice
                     # Create bounding box from circle
                     bbox = (x - r, y - r, x + r, y + r)
                     
@@ -178,11 +210,12 @@ class DiceDetector:
                         min(h, bbox[3])
                     )
                     
-                    # For fallback, assign random value and moderate confidence
-                    # In a real implementation, this would analyze the dice face
-                    import random
-                    value = random.randint(1, 6)
-                    confidence = 0.6  # Moderate confidence for fallback
+                    # Analyze the region to estimate dice value
+                    value = self._estimate_dice_value(enhanced, x, y, r)
+                    
+                    # Confidence based on how much it looks like a dice
+                    # Higher std deviation suggests more dots/features
+                    confidence = min(0.9, 0.4 + (std_val / 100))
                     
                     detection = DiceDetection(bbox, value, confidence)
                     detections.append(detection)
@@ -192,6 +225,72 @@ class DiceDetector:
         except Exception as e:
             self.logger.error(f"Fallback detection error: {e}")
             return []
+    
+    def _estimate_dice_value(self, gray_image: np.ndarray, cx: int, cy: int, radius: int) -> int:
+        """
+        Estimate dice value by analyzing the circular region.
+        This is a simple heuristic - not perfect but better than random.
+        """
+        try:
+            # Extract circular region
+            y1, y2 = max(0, cy-radius), min(gray_image.shape[0], cy+radius)
+            x1, x2 = max(0, cx-radius), min(gray_image.shape[1], cx+radius)
+            roi = gray_image[y1:y2, x1:x2]
+            
+            if roi.size == 0:
+                return 3  # Default middle value
+            
+            # Create circular mask
+            mask = np.zeros(roi.shape, dtype=np.uint8)
+            local_cx, local_cy = roi.shape[1]//2, roi.shape[0]//2
+            cv2.circle(mask, (local_cx, local_cy), radius//2, 255, -1)
+            
+            # Apply mask to roi
+            masked_roi = cv2.bitwise_and(roi, roi, mask=mask)
+            
+            # Threshold to find dark spots (dots)
+            # Assume dice are light with dark dots
+            mean_val = cv2.mean(masked_roi, mask=mask)[0]
+            threshold_val = max(mean_val - 30, 50)  # Adaptive threshold
+            
+            _, binary = cv2.threshold(masked_roi, threshold_val, 255, cv2.THRESH_BINARY_INV)
+            binary = cv2.bitwise_and(binary, binary, mask=mask)
+            
+            # Find contours (potential dots)
+            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Filter contours by size (dots should be reasonably sized)
+            min_dot_area = (radius * 0.1) ** 2  # Minimum dot size
+            max_dot_area = (radius * 0.4) ** 2  # Maximum dot size
+            
+            dot_count = 0
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if min_dot_area <= area <= max_dot_area:
+                    # Check if contour is roughly circular (dots are round)
+                    perimeter = cv2.arcLength(contour, True)
+                    if perimeter > 0:
+                        circularity = 4 * np.pi * area / (perimeter ** 2)
+                        if circularity > 0.3:  # Reasonably circular
+                            dot_count += 1
+            
+            # Map dot count to dice value with some bounds checking
+            if dot_count == 0:
+                return 1  # Could be 1 (center dot might be missed) or clean face
+            elif dot_count == 1:
+                return 1
+            elif dot_count == 2:
+                return 2
+            elif dot_count <= 4:
+                return 3 if dot_count == 3 else 4
+            elif dot_count == 5:
+                return 5
+            else:
+                return 6  # 6 or many dots detected
+                
+        except Exception as e:
+            self.logger.debug(f"Dice value estimation error: {e}")
+            return 3  # Default to middle value
     
     def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
         """Preprocess frame for model input."""

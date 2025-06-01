@@ -29,9 +29,13 @@ class Config:
         self.labelmap_path = os.path.join("models", "labelmap.txt")
         
         # Detection settings
-        self.confidence_threshold = 0.5
+        self.confidence_threshold = 0.4  # Lower threshold for fallback detection
         self.max_detections = 6  # Maximum dice to detect simultaneously
         self.nms_threshold = 0.4  # Non-maximum suppression
+        
+        # Motion handling for rolling dice
+        self.detection_stability_frames = 3  # Frames to confirm stable detection
+        self.min_detection_confidence = 0.3  # Minimum confidence to consider
         
         # Performance optimization for Pi 3
         self.frame_skip = 2  # Process every 2nd frame
