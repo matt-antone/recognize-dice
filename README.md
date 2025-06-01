@@ -162,6 +162,16 @@ sudo raspi-config
 # Navigate to Interface Options > Camera > Enable
 ```
 
+**PIL ImageTk missing (Raspberry Pi):**
+
+```bash
+# Install PIL-Tkinter integration
+sudo apt install python3-pil.imagetk
+
+# Then restart your application
+python3 main.py
+```
+
 **Import errors:**
 
 ```bash

@@ -60,6 +60,26 @@ def install_base_requirements():
     return True
 
 
+def install_pi_system_deps(platform_info):
+    """Install Raspberry Pi specific system dependencies."""
+    if not platform_info['is_raspberry_pi']:
+        return True
+    
+    print("\nInstalling Raspberry Pi system dependencies...")
+    
+    # PIL ImageTk integration for GUI
+    try:
+        subprocess.check_call(['sudo', 'apt', 'update'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call(['sudo', 'apt', 'install', '-y', 'python3-pil.imagetk'])
+        print("✅ Installed python3-pil.imagetk")
+    except subprocess.CalledProcessError:
+        print("⚠️  Could not install python3-pil.imagetk via apt")
+        print("   You may need to run manually: sudo apt install python3-pil.imagetk")
+        return False
+    
+    return True
+
+
 def install_tensorflow_lite(platform_info):
     """Install TensorFlow Lite based on platform."""
     print("\nInstalling TensorFlow Lite...")
@@ -220,6 +240,10 @@ def main():
     
     # Base requirements
     if not install_base_requirements():
+        success = False
+    
+    # Raspberry Pi system dependencies
+    if not install_pi_system_deps(platform_info):
         success = False
     
     # TensorFlow Lite

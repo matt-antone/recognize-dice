@@ -1,6 +1,9 @@
 # Core Computer Vision (required)
 opencv-python>=4.5.0
 numpy>=1.21.0
+
+# GUI and Image Processing
+# Note: On Raspberry Pi OS, also run: sudo apt install python3-pil.imagetk
 pillow>=8.0.0
 
 # Raspberry Pi Camera (required for Pi)
