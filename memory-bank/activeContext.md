@@ -1,128 +1,151 @@
 # Active Context: D6 Dice Recognition App
 
+## Development Environment Setup - IMPORTANT
+
+**Development Platform**: macOS (darwin 24.4.0)
+
+- **Purpose**: Code development, editing, version control
+- **What works**: Core framework testing with `test_fallback.py`
+- **What doesn't work**: Camera interface, full application
+- **Role**: Development and testing of non-hardware components only
+
+**Target Platform**: Raspberry Pi 3
+
+- **Purpose**: Complete application deployment and execution
+- **What works**: Full application with camera + ML model + GUI
+- **Role**: Production environment for actual dice recognition
+
+**Critical Development Workflow**:
+
+1. **Develop on macOS**: Edit code, test logic components
+2. **Deploy to Pi**: Transfer via SSH/SCP for hardware testing
+3. **Test on Pi**: Run `main.py` and `test_camera.py` on actual hardware
+4. **Iterate**: Make changes on macOS, redeploy to Pi
+
+**Applications by Platform**:
+
+- `python3 main.py` → **Raspberry Pi 3 ONLY**
+- `python3 test_camera.py` → **Raspberry Pi 3 ONLY**
+- `python3 test_fallback.py` → **macOS development testing** ✅
+
 ## Current Work Focus
 
-**Phase**: Foundation Complete - Ready for Model Integration
+**Phase**: Foundation Complete - Ready for Pi Deployment
 **Target Hardware**: Raspberry Pi 3 (optimized)
-**Immediate Goal**: Convert nell-byler/dice_detection model to TensorFlow Lite for Pi 3
+**Immediate Goal**: Deploy to Pi 3 and test camera integration
 
 ## Recent Accomplishments ✅
 
 - **Complete application framework** built and Pi 3 optimized
+- **Cross-platform development** workflow established
+- **macOS development testing** confirmed working with fallback detection
+- **Dependency management** resolved for both platforms
 - **Dual camera support** (picamera2/picamera) with graceful fallback
 - **Lightweight GUI** using Tkinter for Pi 3 memory constraints
 - **Configuration system** with dynamic performance adjustment
 - **Robust error handling** and logging throughout
-- **Testing infrastructure** with camera test script
+- **Testing infrastructure** with platform-appropriate tests
 - **Comprehensive documentation** including .cursorrules and memory bank
 
 ## Current Architecture Status
 
-- **Camera Interface**: ✅ Complete with dual compatibility
-- **Detection Pipeline**: ✅ Framework ready for model integration
-- **GUI System**: ✅ Functional Tkinter interface
+- **Camera Interface**: ✅ Complete with dual Pi compatibility (untested on hardware)
+- **Detection Pipeline**: ✅ Framework ready, fallback detection confirmed working
+- **GUI System**: ✅ Functional Tkinter interface (ready for Pi testing)
 - **Performance Monitoring**: ✅ FPS, memory, thermal tracking
 - **Configuration Management**: ✅ Pi 3 optimized settings
+- **Cross-platform Development**: ✅ macOS dev → Pi 3 deployment workflow
 
 ## Next Steps (Priority Order)
 
-1. **Model Integration**: Convert reference model to TensorFlow Lite
-   - Download/extract model from nell-byler/dice_detection
-   - Convert to TensorFlow Lite with INT8 quantization
-   - Test inference on Pi 3 hardware
-2. **Hardware Testing**: Deploy and test complete application on Pi 3
-3. **Performance Optimization**: Fine-tune based on real Pi 3 performance
-4. **Model Accuracy Testing**: Validate detection accuracy vs reference
+1. **Pi Deployment**: Transfer project to Raspberry Pi 3 hardware
+2. **Camera Testing**: Run `test_camera.py` on Pi to verify camera interface
+3. **Full Application Test**: Run `main.py` on Pi with actual camera
+4. **Model Integration**: Convert reference model to TensorFlow Lite (can do on macOS)
+5. **Performance Optimization**: Fine-tune based on real Pi 3 performance
 
-## Active Decisions - UPDATED
+## Active Decisions - CONFIRMED
 
+- **Development Platform**: ✅ macOS for code development only
+- **Target Platform**: ✅ Raspberry Pi 3 for execution only
 - **GUI Framework**: ✅ Tkinter confirmed working for Pi 3
 - **Model Strategy**: ✅ TensorFlow Lite infrastructure ready
 - **Performance**: ✅ 3-5 FPS target with frame skipping
 - **Memory Management**: ✅ Streaming architecture implemented
-- **Camera Strategy**: ✅ Dual compatibility working
+- **Camera Strategy**: ✅ Dual compatibility (picamera2/picamera) ready for Pi testing
 
-## Technical Implementation Ready
+## Testing Status by Platform
 
-- **Application Entry Point**: `main.py` with complete initialization
-- **Camera Testing**: `test_camera.py` for hardware verification
-- **Module Structure**: All core modules implemented
-- **Error Handling**: Graceful degradation throughout
-- **Documentation**: README with setup instructions
+### macOS Development Testing ✅
+
+- **Core Dependencies**: opencv-python, numpy, PIL, tkinter ✅
+- **Fallback Detection**: Working - detected 3 simulated dice ✅
+- **Framework Logic**: All modules import and initialize correctly ✅
+- **GUI Components**: Tkinter confirmed working ✅
+- **Camera Libraries**: Correctly excluded (not needed) ✅
+
+### Raspberry Pi 3 Testing (Pending Hardware)
+
+- **Camera Interface**: Ready for testing
+- **Full Application**: Ready for deployment
+- **Performance Validation**: Needs Pi 3 hardware measurement
+- **ML Model Integration**: Framework ready
 
 ## Current Working Status
 
-The application framework is **complete and ready for testing**:
+The application framework is **complete and ready for Pi deployment**:
 
-### What Works Right Now
+### Development Environment (macOS)
 
-- Camera interface with automatic library detection
-- GUI with start/stop functionality
-- Fallback computer vision detection (HoughCircles)
-- Performance monitoring and statistics
-- Configuration management
-- Logging and error handling
+- Framework development and testing ✅
+- Fallback detection validation ✅
+- Code editing and version control ✅
+- Platform-specific installer working ✅
 
-### Ready for Testing Commands
+### Production Environment (Pi 3) - Ready for Testing
+
+- Complete application with camera interface
+- Pi 3 optimized configurations
+- Performance monitoring and thermal management
+- TensorFlow Lite framework ready
+
+## Development Workflow Commands
+
+### On macOS (Development)
 
 ```bash
-# Test dependencies and camera
+# Test core framework
+python3 test_fallback.py
+
+# Install dev dependencies
+python3 install_deps.py
+
+# Edit code, commit changes
+```
+
+### On Raspberry Pi 3 (Production)
+
+```bash
+# Setup environment
+python3 install_deps.py
+
+# Test camera hardware
 python3 test_camera.py
 
-# Run main application (with fallback detection)
+# Run full application
 python3 main.py
 ```
 
-## Model Integration Requirements
+## Current Blockers - NONE for Development
 
-From the reference project analysis, we need:
+Framework is complete for Pi deployment. Ready to test on actual hardware.
 
-### From nell-byler/dice_detection Repository
+## Success Metrics for Pi Deployment
 
-- **Model Architecture**: SSD MobileNet trained on dice dataset
-- **Input Format**: Likely 640x640 → needs reduction to 320x320 for Pi 3
-- **Output Format**: Bounding boxes + classifications (1-6)
-- **Labels**: Using provided labelmap.txt format
+- **Camera Interface**: Camera detected and frames captured
+- **Application Startup**: <15 seconds on Pi 3
+- **Fallback Detection**: Working on Pi (as confirmed on macOS)
+- **GUI Functionality**: Interface responsive on Pi
+- **Performance**: 3-5 FPS achieved on Pi 3 hardware
 
-### Conversion Process Needed
-
-1. **Extract Model**: Get trained model from reference repository
-2. **TensorFlow Lite Conversion**: Convert with quantization
-3. **Pi 3 Optimization**: Reduce input size if needed
-4. **Integration**: Replace fallback detection with real model
-5. **Validation**: Test accuracy vs original
-
-## Current Blockers - NONE
-
-All foundational work is complete. Ready to proceed with model integration.
-
-## Questions for Next Phase
-
-1. **Model Access**: How to access/download the trained model from reference?
-2. **Conversion Tools**: Need TensorFlow conversion scripts
-3. **Performance Trade-offs**: Input size vs accuracy on Pi 3
-
-## Resources Ready
-
-- **Complete codebase** optimized for Pi 3
-- **Testing framework** for validation
-- **Documentation** for development context
-- **Configuration system** for easy adjustment
-- **Performance monitoring** for optimization
-
-## Success Metrics for Next Phase
-
-- **Model Loading**: TensorFlow Lite model loads successfully
-- **Inference Speed**: <300ms per frame on Pi 3
-- **Accuracy**: Reasonable dice detection (>70% initially)
-- **Integration**: Smooth replacement of fallback detection
-
-## Development Environment Status
-
-- **Project Structure**: ✅ Complete and organized
-- **Dependencies**: ✅ Documented in requirements.txt
-- **Testing**: ✅ Camera test script ready
-- **Documentation**: ✅ Comprehensive setup instructions
-- **Configuration**: ✅ Pi 3 optimized settings
-
-**Status**: Foundation is solid. Ready to move from framework to functional dice recognition with model integration.
+**Status**: Development foundation solid. Ready for Raspberry Pi 3 hardware deployment and testing.
