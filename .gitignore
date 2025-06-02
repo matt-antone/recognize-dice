@@ -132,7 +132,6 @@ dmypy.json
 # ======================
 
 # TensorFlow/ML model files
-*.tflite
 *.pb
 *.h5
 *.hdf5
