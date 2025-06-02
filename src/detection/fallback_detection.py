@@ -198,17 +198,25 @@ class FallbackDetection:
         # Find contours of potential dots
         dot_contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # FIXED: Much more realistic area thresholds for individual pips
-        # Individual pips should be small relative to dice face
-        min_dot_area = 12  # More aggressive noise filtering
-        max_dot_area = dice_region.size // 35  # Even smaller maximum for pips
+        # OPTIMIZED: Based on real dice dimensions (12mm-16mm cubes)
+        # At current camera distance: ~54 pixels = 12-16mm cube
+        # Individual pips: ~2-3mm diameter = ~6-12 pixels
+        min_dot_area = 15  # ~3-4 pixel radius (real pip size)
+        max_dot_area = 80  # ~5-6 pixel radius (maximum pip size)
+        
+        # Also consider dice face area for relative sizing
+        dice_face_area = dice_region.size
+        relative_max_area = dice_face_area // 40  # Pip should be <1/40 of dice face
         
         # Count reasonably sized circular contours
         dot_count = 0
         
         for contour in dot_contours:
             area = cv2.contourArea(contour)
-            if min_dot_area < area < max_dot_area:
+            # Use both absolute and relative area limits for robustness
+            max_area_limit = min(max_dot_area, relative_max_area)
+            
+            if min_dot_area < area < max_area_limit:
                 # Check if contour is roughly circular
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
@@ -224,7 +232,9 @@ class FallbackDetection:
         dot_count_inv = 0
         for contour in dot_contours_inv:
             area = cv2.contourArea(contour)
-            if min_dot_area < area < max_dot_area:
+            max_area_limit = min(max_dot_area, relative_max_area)
+            
+            if min_dot_area < area < max_area_limit:
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
