@@ -181,28 +181,272 @@ class FallbackDetection:
     def _estimate_dice_value(self, dice_region: np.ndarray) -> int:
         """
         Estimate dice value by analyzing dots/pips in the dice region.
-        Improved for colored dice, rounded dice, and angled views.
+        ENHANCED: Fixes value 6 detection catastrophe and value 1 over-detection.
         """
         if dice_region.size == 0:
             return 1
         
+        # PRIORITY 1: Check for value 6 pattern specifically (was 0.4% detection)
+        value_6_confidence = self._detect_value_6_pattern(dice_region)
+        if value_6_confidence > 0.7:
+            return 6
+        
+        # PRIORITY 2: Check for value 1 over-detection issue (was 41.6% over-detected)
+        if self._is_likely_single_pip(dice_region):
+            return 1
+        
+        # PRIORITY 3: Use enhanced multi-method approach for other values
+        return self._enhanced_multi_method_estimation(dice_region)
+    
+    def _detect_value_6_pattern(self, dice_region: np.ndarray) -> float:
+        """
+        Specifically detect the value 6 pattern (3x2 grid of pips).
+        Returns confidence score 0.0-1.0.
+        """
+        h, w = dice_region.shape
+        
+        # METHOD 1: Check for 6 distinct circular regions
+        dots_found = self._find_all_circular_dots(dice_region)
+        if len(dots_found) == 6:
+            # Verify they form a 3x2 grid pattern
+            if self._is_3x2_grid_pattern(dots_found, w, h):
+                return 0.9
+        
+        # METHOD 2: Check for distinctive 3x2 spatial pattern
+        pattern_score = self._analyze_3x2_spatial_pattern(dice_region)
+        if pattern_score > 0.7:
+            return pattern_score
+        
+        # METHOD 3: Template matching for value 6
+        template_score = self._template_match_value_6(dice_region)
+        
+        return max(0.0, template_score)
+    
+    def _find_all_circular_dots(self, dice_region: np.ndarray) -> list:
+        """Find all circular dot-like regions in the dice using multiple methods."""
+        potential_dots = []
+        
+        # Method 1: Adaptive threshold
+        try:
+            adaptive = cv2.adaptiveThreshold(
+                dice_region, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            )
+            dots_adaptive = self._extract_dots_from_binary_enhanced(adaptive, dice_region.size)
+            potential_dots.extend(dots_adaptive)
+        except:
+            pass
+        
+        # Method 2: OTSU threshold
+        try:
+            _, otsu = cv2.threshold(dice_region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            dots_otsu = self._extract_dots_from_binary_enhanced(otsu, dice_region.size)
+            potential_dots.extend(dots_otsu)
+        except:
+            pass
+        
+        # Method 3: Inverted OTSU (for white pips on dark dice)
+        try:
+            _, otsu_inv = cv2.threshold(dice_region, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            dots_inv = self._extract_dots_from_binary_enhanced(otsu_inv, dice_region.size)
+            potential_dots.extend(dots_inv)
+        except:
+            pass
+        
+        # Deduplicate dots that are too close
+        return self._deduplicate_dots(potential_dots)
+    
+    def _extract_dots_from_binary_enhanced(self, binary: np.ndarray, dice_area: int) -> list:
+        """Extract circular dots from binary image with enhanced parameters."""
+        # Clean up noise
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        
+        contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        dots = []
+        # ENHANCED: Optimized for real dice dimensions and value 6 detection
+        min_dot_area = 8   # Smaller minimum to catch value 6 pips
+        max_dot_area = 150  # Larger maximum for various dice sizes
+        relative_max = dice_area // 20  # More generous for value 6
+        
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if min_dot_area <= area <= min(max_dot_area, relative_max):
+                # Check circularity (lenient for real-world conditions)
+                perimeter = cv2.arcLength(contour, True)
+                if perimeter > 0:
+                    circularity = 4 * np.pi * area / (perimeter * perimeter)
+                    if circularity > 0.15:  # More lenient for value 6
+                        # Get center
+                        M = cv2.moments(contour)
+                        if M["m00"] != 0:
+                            cx = int(M["m10"] / M["m00"])
+                            cy = int(M["m01"] / M["m00"])
+                            dots.append({'center': (cx, cy), 'area': area, 'circularity': circularity})
+        
+        return dots
+    
+    def _deduplicate_dots(self, dots: list) -> list:
+        """Remove duplicate dots that are too close together."""
+        if len(dots) <= 1:
+            return dots
+        
+        final_dots = []
+        min_distance = 12  # Minimum distance between dot centers
+        
+        for dot in dots:
+            too_close = False
+            for existing in final_dots:
+                dx = dot['center'][0] - existing['center'][0]
+                dy = dot['center'][1] - existing['center'][1]
+                distance = np.sqrt(dx*dx + dy*dy)
+                if distance < min_distance:
+                    too_close = True
+                    break
+            
+            if not too_close:
+                final_dots.append(dot)
+        
+        return final_dots
+    
+    def _is_3x2_grid_pattern(self, dots: list, width: int, height: int) -> bool:
+        """Check if 6 dots form a 3x2 grid pattern (value 6)."""
+        if len(dots) != 6:
+            return False
+        
+        # Extract centers
+        centers = [dot['center'] for dot in dots]
+        
+        # Sort by Y coordinate to find rows
+        centers_by_y = sorted(centers, key=lambda p: p[1])
+        
+        # Check if we can form 2 rows of 3 dots each
+        row1 = centers_by_y[:3]
+        row2 = centers_by_y[3:]
+        
+        # Check if each row has 3 dots roughly aligned horizontally
+        row1_y_var = np.var([p[1] for p in row1])
+        row2_y_var = np.var([p[1] for p in row2])
+        
+        # Allow some variance but not too much
+        max_y_variance = height * 0.15  # Slightly more lenient
+        
+        if row1_y_var < max_y_variance and row2_y_var < max_y_variance:
+            # Check if rows are vertically separated
+            row1_avg_y = np.mean([p[1] for p in row1])
+            row2_avg_y = np.mean([p[1] for p in row2])
+            
+            vertical_separation = abs(row2_avg_y - row1_avg_y)
+            min_separation = height * 0.15
+            
+            if vertical_separation > min_separation:
+                return True
+        
+        return False
+    
+    def _analyze_3x2_spatial_pattern(self, dice_region: np.ndarray) -> float:
+        """Analyze spatial patterns specific to value 6."""
+        h, w = dice_region.shape
+        
+        # Divide into 6 regions (3x2 grid)
+        region_h = h // 2
+        region_w = w // 3
+        
+        regions = []
+        for row in range(2):
+            for col in range(3):
+                y1 = row * region_h
+                y2 = (row + 1) * region_h
+                x1 = col * region_w
+                x2 = (col + 1) * region_w
+                
+                region = dice_region[y1:y2, x1:x2]
+                if region.size > 0:
+                    regions.append(region)
+        
+        if len(regions) != 6:
+            return 0.0
+        
+        # Check if each region has a dark spot (pip)
+        dark_regions = 0
+        overall_mean = np.mean(dice_region)
+        
+        for region in regions:
+            region_min = np.min(region)
+            region_mean = np.mean(region)
+            
+            # Check for dark spot in this region
+            if region_min < overall_mean * 0.65 or region_mean < overall_mean * 0.85:
+                dark_regions += 1
+        
+        # Value 6 should have dark spots in all 6 regions
+        confidence = dark_regions / 6.0
+        return confidence
+    
+    def _template_match_value_6(self, dice_region: np.ndarray) -> float:
+        """Simple template matching for value 6 pattern."""
+        h, w = dice_region.shape
+        
+        # Check overall darkness (more pips = darker overall)
+        avg_brightness = np.mean(dice_region)
+        brightness_score = 1.0 - (avg_brightness / 255.0)
+        
+        # Check for multiple distinct dark regions
+        _, binary = cv2.threshold(dice_region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        distinct_regions = len([c for c in contours if cv2.contourArea(c) > 15])
+        region_score = min(1.0, distinct_regions / 6.0)
+        
+        # Combine scores
+        template_score = (brightness_score * 0.6 + region_score * 0.4)
+        
+        return template_score
+    
+    def _is_likely_single_pip(self, dice_region: np.ndarray) -> bool:
+        """Check if this is likely a single pip (value 1) to reduce over-detection."""
+        h, w = dice_region.shape
+        
+        # Look for a single central dark region
+        center_region = dice_region[h//3:2*h//3, w//3:2*w//3]
+        
+        if center_region.size == 0:
+            return False
+        
+        # Check if center is significantly darker than edges
+        center_mean = np.mean(center_region)
+        edge_mean = np.mean([
+            np.mean(dice_region[0:h//4, :]),  # Top edge
+            np.mean(dice_region[3*h//4:h, :]),  # Bottom edge
+            np.mean(dice_region[:, 0:w//4]),  # Left edge
+            np.mean(dice_region[:, 3*w//4:w])  # Right edge
+        ])
+        
+        contrast = edge_mean - center_mean
+        
+        # Single pip should have strong central contrast
+        return contrast > 25
+    
+    def _enhanced_multi_method_estimation(self, dice_region: np.ndarray) -> int:
+        """Enhanced multi-method estimation for values 2-5."""
         # Try multiple approaches for robust detection
         dot_counts = []
         
-        # Approach 1: Edge-based detection (works better for colored dice)
-        edges = cv2.Canny(dice_region, 30, 100)
-        dot_count_edges = self._count_dots_from_edges(edges, dice_region.size)
-        if 1 <= dot_count_edges <= 6:
-            dot_counts.append(dot_count_edges)
+        # Approach 1: Enhanced dot counting
+        dots = self._find_all_circular_dots(dice_region)
+        dot_count = len(dots)
+        if 1 <= dot_count <= 6:
+            dot_counts.append(dot_count)
         
-        # Approach 2: Multiple thresholding (for traditional dice)
+        # Approach 2: Edge-based detection
+        edges = cv2.Canny(dice_region, 30, 100)
+        edge_count = self._count_dots_from_edges(edges, dice_region.size)
+        if 1 <= edge_count <= 6:
+            dot_counts.append(edge_count)
+        
+        # Approach 3: Multiple thresholding methods
         thresholding_counts = self._try_thresholding_methods(dice_region)
         dot_counts.extend(thresholding_counts)
-        
-        # Approach 3: Template matching for common pip patterns
-        template_count = self._estimate_from_pattern(dice_region)
-        if 1 <= template_count <= 6:
-            dot_counts.append(template_count)
         
         # Find consensus from valid counts
         if dot_counts:
@@ -263,66 +507,6 @@ class FallbackDetection:
         
         return valid_counts
     
-    def _estimate_from_pattern(self, dice_region: np.ndarray) -> int:
-        """Estimate dice value from overall pattern and distribution."""
-        # Analyze the spatial distribution of dark/bright regions
-        h, w = dice_region.shape
-        
-        # Divide dice face into regions and analyze distribution
-        center_region = dice_region[h//3:2*h//3, w//3:2*w//3]
-        corner_regions = [
-            dice_region[0:h//3, 0:w//3],      # Top-left
-            dice_region[0:h//3, 2*w//3:w],    # Top-right  
-            dice_region[2*h//3:h, 0:w//3],    # Bottom-left
-            dice_region[2*h//3:h, 2*w//3:w]   # Bottom-right
-        ]
-        
-        # Count regions with significant dark spots
-        threshold = np.mean(dice_region) * 0.7
-        
-        regions_with_dots = 0
-        if np.min(center_region) < threshold:
-            regions_with_dots += 1
-        
-        for corner in corner_regions:
-            if corner.size > 0 and np.min(corner) < threshold:
-                regions_with_dots += 1
-        
-        # Map region patterns to dice values
-        if regions_with_dots <= 1:
-            return 1
-        elif regions_with_dots == 2:
-            return 2
-        elif regions_with_dots == 3:
-            return 3
-        elif regions_with_dots == 4:
-            return 4
-        elif regions_with_dots == 5:
-            return 5
-        else:
-            return 6
-    
-    def _brightness_fallback(self, dice_region: np.ndarray) -> int:
-        """Fallback estimation based on brightness and contrast."""
-        avg_brightness = np.mean(dice_region)
-        brightness_std = np.std(dice_region)
-        
-        # Higher contrast usually means more dots
-        if brightness_std > 60:
-            if avg_brightness < 100:
-                return 6
-            elif avg_brightness < 130:
-                return 5  
-            else:
-                return 4
-        elif brightness_std > 40:
-            if avg_brightness < 120:
-                return 3
-            else:
-                return 2
-        else:
-            return 1
-    
     def _count_dots_in_binary(self, binary: np.ndarray, dice_face_area: int) -> int:
         """Count dots in a binary image using the optimized parameters."""
         # Morphological operations to clean up
@@ -351,6 +535,27 @@ class FallbackDetection:
                         dot_count += 1
         
         return dot_count
+    
+    def _brightness_fallback(self, dice_region: np.ndarray) -> int:
+        """Fallback estimation based on brightness and contrast."""
+        avg_brightness = np.mean(dice_region)
+        brightness_std = np.std(dice_region)
+        
+        # Higher contrast usually means more dots
+        if brightness_std > 60:
+            if avg_brightness < 100:
+                return 6
+            elif avg_brightness < 130:
+                return 5  
+            else:
+                return 4
+        elif brightness_std > 40:
+            if avg_brightness < 120:
+                return 3
+            else:
+                return 2
+        else:
+            return 1
     
     def _deduplicate_detections(self, detections: List[dict]) -> List[dict]:
         """Remove duplicate detections that are too close to each other."""
