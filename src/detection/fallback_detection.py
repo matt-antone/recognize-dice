@@ -182,42 +182,59 @@ class FallbackDetection:
         """
         Estimate dice value by analyzing dots/pips in the dice region.
         ENHANCED: Fixes value 6 detection catastrophe and value 1 over-detection.
+        UPDATED: Adds specific value 4 detection to fix 1/2 toggle issue.
+        REFINED: Improved priority logic to distinguish 4 vs 6.
         """
         if dice_region.size == 0:
             return 1
         
-        # PRIORITY 1: Check for value 6 pattern specifically (was 0.4% detection)
+        # Get confidence scores for multiple patterns
         value_6_confidence = self._detect_value_6_pattern(dice_region)
-        if value_6_confidence > 0.7:
+        value_4_confidence = self._detect_value_4_pattern(dice_region)
+        
+        # PRIORITY 1: Check for value 6 pattern (3x2 grid) with higher threshold
+        if value_6_confidence > 0.8 and value_6_confidence > value_4_confidence:
             return 6
         
-        # PRIORITY 2: Check for value 1 over-detection issue (was 41.6% over-detected)
+        # PRIORITY 2: Check for value 4 pattern (2x2 grid) 
+        if value_4_confidence > 0.7:
+            return 4
+        
+        # PRIORITY 3: Check for value 6 with lower threshold if 4 is not confident
+        if value_6_confidence > 0.7 and value_4_confidence < 0.5:
+            return 6
+        
+        # PRIORITY 4: Check for value 1 over-detection issue (was 41.6% over-detected)
         if self._is_likely_single_pip(dice_region):
             return 1
         
-        # PRIORITY 3: Use enhanced multi-method approach for other values
+        # PRIORITY 5: Use enhanced multi-method approach for other values
         return self._enhanced_multi_method_estimation(dice_region)
     
     def _detect_value_6_pattern(self, dice_region: np.ndarray) -> float:
         """
         Specifically detect the value 6 pattern (3x2 grid of pips).
         Returns confidence score 0.0-1.0.
+        ENHANCED: More specific to avoid confusion with value 4 (2x2).
         """
         h, w = dice_region.shape
         
-        # METHOD 1: Check for 6 distinct circular regions
+        # METHOD 1: Check for exactly 6 distinct circular regions (not 4!)
         dots_found = self._find_all_circular_dots(dice_region)
         if len(dots_found) == 6:
             # Verify they form a 3x2 grid pattern
             if self._is_3x2_grid_pattern(dots_found, w, h):
-                return 0.9
+                return 0.95  # High confidence for perfect 3x2 grid
+        elif len(dots_found) == 4:
+            # 4 dots should NOT be considered value 6
+            return 0.1  # Very low confidence
         
         # METHOD 2: Check for distinctive 3x2 spatial pattern
         pattern_score = self._analyze_3x2_spatial_pattern(dice_region)
         if pattern_score > 0.7:
             return pattern_score
         
-        # METHOD 3: Template matching for value 6
+        # METHOD 3: Template matching for value 6 (requires 6+ regions)
         template_score = self._template_match_value_6(dice_region)
         
         return max(0.0, template_score)
@@ -257,26 +274,28 @@ class FallbackDetection:
     
     def _extract_dots_from_binary_enhanced(self, binary: np.ndarray, dice_area: int) -> list:
         """Extract circular dots from binary image with enhanced parameters."""
-        # Clean up noise
+        # Clean up noise more aggressively
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        # Additional noise reduction
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel)
         
         contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         dots = []
-        # ENHANCED: Optimized for real dice dimensions and value 6 detection
-        min_dot_area = 8   # Smaller minimum to catch value 6 pips
-        max_dot_area = 150  # Larger maximum for various dice sizes
-        relative_max = dice_area // 20  # More generous for value 6
+        # ENHANCED: More strict parameters to avoid noise detection
+        min_dot_area = 20   # Increased from 8 to filter noise
+        max_dot_area = 200  # Reasonable maximum
+        relative_max = dice_area // 25  # More restrictive relative size
         
         for contour in contours:
             area = cv2.contourArea(contour)
             if min_dot_area <= area <= min(max_dot_area, relative_max):
-                # Check circularity (lenient for real-world conditions)
+                # Check circularity (more strict for noise reduction)
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.15:  # More lenient for value 6
+                    if circularity > 0.4:  # More strict circularity requirement
                         # Get center
                         M = cv2.moments(contour)
                         if M["m00"] != 0:
@@ -367,7 +386,7 @@ class FallbackDetection:
         if len(regions) != 6:
             return 0.0
         
-        # Check if each region has a dark spot (pip)
+        # Check if each region has a dark spot (pip) - MORE STRICT
         dark_regions = 0
         overall_mean = np.mean(dice_region)
         
@@ -375,12 +394,26 @@ class FallbackDetection:
             region_min = np.min(region)
             region_mean = np.mean(region)
             
-            # Check for dark spot in this region
-            if region_min < overall_mean * 0.65 or region_mean < overall_mean * 0.85:
+            # ENHANCED: More strict criteria for value 6 detection
+            # Require both strong minimum darkness AND significant mean darkness
+            has_dark_pip = (
+                region_min < overall_mean * 0.5 and  # Very dark minimum (was 0.65)
+                region_mean < overall_mean * 0.8     # Moderately dark mean (was 0.85)
+            )
+            
+            if has_dark_pip:
                 dark_regions += 1
         
-        # Value 6 should have dark spots in all 6 regions
-        confidence = dark_regions / 6.0
+        # Value 6 should have dark spots in ALL 6 regions (strict requirement)
+        if dark_regions == 6:
+            confidence = 1.0
+        elif dark_regions == 5:
+            confidence = 0.7  # Might be missing one pip due to lighting
+        elif dark_regions == 4:
+            confidence = 0.1  # Likely value 4, not 6
+        else:
+            confidence = 0.0
+            
         return confidence
     
     def _template_match_value_6(self, dice_region: np.ndarray) -> float:
@@ -396,10 +429,183 @@ class FallbackDetection:
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         distinct_regions = len([c for c in contours if cv2.contourArea(c) > 15])
-        region_score = min(1.0, distinct_regions / 6.0)
         
-        # Combine scores
-        template_score = (brightness_score * 0.6 + region_score * 0.4)
+        # Value 6 should have 5-6 regions (strict requirement)
+        if distinct_regions >= 5:
+            region_score = min(1.0, distinct_regions / 6.0)
+        elif distinct_regions == 4:
+            region_score = 0.2  # Low score for 4 regions (likely value 4)
+        else:
+            region_score = 0.0
+        
+        # Combine scores - require both good brightness AND sufficient regions
+        template_score = (brightness_score * 0.4 + region_score * 0.6)
+        
+        return template_score
+    
+    def _detect_value_4_pattern(self, dice_region: np.ndarray) -> float:
+        """
+        Specifically detect the value 4 pattern (2x2 grid of pips).
+        Returns confidence score 0.0-1.0.
+        Fixes toggle between 1 and 2 detections.
+        """
+        h, w = dice_region.shape
+        
+        # METHOD 1: Check for exactly 4 distinct circular regions
+        dots_found = self._find_all_circular_dots(dice_region)
+        if len(dots_found) == 4:
+            # Verify they form a 2x2 grid pattern
+            if self._is_2x2_grid_pattern(dots_found, w, h):
+                return 0.95  # High confidence for perfect 2x2 grid
+        
+        # METHOD 2: Check for 2x2 spatial pattern characteristics
+        pattern_score = self._analyze_2x2_spatial_pattern(dice_region)
+        if pattern_score > 0.7:
+            return pattern_score
+        
+        # METHOD 3: Template matching for value 4 (moderate darkness, 4 regions)
+        template_score = self._template_match_value_4(dice_region)
+        
+        return max(0.0, template_score)
+    
+    def _is_2x2_grid_pattern(self, dots: list, width: int, height: int) -> bool:
+        """Check if 4 dots form a 2x2 grid pattern (value 4)."""
+        if len(dots) != 4:
+            return False
+        
+        # Extract centers
+        centers = [dot['center'] for dot in dots]
+        
+        # Sort by Y coordinate to find potential rows
+        centers_by_y = sorted(centers, key=lambda p: p[1])
+        
+        # For 2x2, we need 2 dots in top half and 2 in bottom half
+        mid_y = height / 2
+        top_dots = [p for p in centers if p[1] < mid_y]
+        bottom_dots = [p for p in centers if p[1] >= mid_y]
+        
+        if len(top_dots) != 2 or len(bottom_dots) != 2:
+            return False
+        
+        # Check horizontal alignment within each row
+        top_y_var = abs(top_dots[0][1] - top_dots[1][1])
+        bottom_y_var = abs(bottom_dots[0][1] - bottom_dots[1][1])
+        
+        max_y_variance = height * 0.2  # Allow some variance
+        
+        if top_y_var < max_y_variance and bottom_y_var < max_y_variance:
+            # Check vertical alignment (left and right columns)
+            left_dots = sorted(centers, key=lambda p: p[0])[:2]
+            right_dots = sorted(centers, key=lambda p: p[0])[2:]
+            
+            left_x_var = abs(left_dots[0][0] - left_dots[1][0])
+            right_x_var = abs(right_dots[0][0] - right_dots[1][0])
+            
+            max_x_variance = width * 0.2
+            
+            if left_x_var < max_x_variance and right_x_var < max_x_variance:
+                return True
+        
+        return False
+    
+    def _analyze_2x2_spatial_pattern(self, dice_region: np.ndarray) -> float:
+        """Analyze spatial patterns specific to value 4 (2x2 grid)."""
+        h, w = dice_region.shape
+        
+        # Divide dice into 4 quadrants
+        top_left = dice_region[0:h//2, 0:w//2]
+        top_right = dice_region[0:h//2, w//2:w]
+        bottom_left = dice_region[h//2:h, 0:w//2]
+        bottom_right = dice_region[h//2:h, w//2:w]
+        
+        quadrants = [top_left, top_right, bottom_left, bottom_right]
+        
+        # Each quadrant should have a dark pip
+        pip_scores = []
+        for quad in quadrants:
+            if quad.size == 0:
+                pip_scores.append(0.0)
+                continue
+            
+            # Look for dark circular region in center of quadrant
+            qh, qw = quad.shape
+            center_region = quad[qh//3:2*qh//3, qw//3:2*qw//3]
+            
+            if center_region.size == 0:
+                pip_scores.append(0.0)
+                continue
+            
+            # Check if center is darker than edges
+            center_mean = np.mean(center_region)
+            edge_mean = np.mean([
+                np.mean(quad[0:qh//4, :]) if qh//4 > 0 else center_mean,
+                np.mean(quad[3*qh//4:qh, :]) if qh - 3*qh//4 > 0 else center_mean,
+                np.mean(quad[:, 0:qw//4]) if qw//4 > 0 else center_mean,
+                np.mean(quad[:, 3*qw//4:qw]) if qw - 3*qw//4 > 0 else center_mean
+            ])
+            
+            contrast = edge_mean - center_mean
+            pip_score = min(1.0, max(0.0, contrast / 30.0))  # Normalize contrast
+            pip_scores.append(pip_score)
+        
+        # All 4 quadrants should have pips for value 4
+        avg_pip_score = np.mean(pip_scores)
+        min_pip_score = min(pip_scores)
+        
+        # Require all quadrants to have some pip evidence
+        if min_pip_score > 0.3 and avg_pip_score > 0.6:
+            return avg_pip_score * 0.9  # High confidence
+        elif min_pip_score > 0.2 and avg_pip_score > 0.5:
+            return avg_pip_score * 0.7  # Moderate confidence
+        else:
+            return 0.0
+    
+    def _template_match_value_4(self, dice_region: np.ndarray) -> float:
+        """Template matching for value 4 pattern (moderate darkness, 4 distinct regions)."""
+        h, w = dice_region.shape
+        
+        # Check overall darkness (4 pips = moderately dark)
+        avg_brightness = np.mean(dice_region)
+        # ENHANCED: Expand acceptable brightness range for real dice
+        if 180 <= avg_brightness <= 230:
+            # Light dice (common case)
+            brightness_score = 1.0 - abs(avg_brightness - 205) / 25.0
+        elif 140 <= avg_brightness <= 179:
+            # Medium dice
+            brightness_score = 1.0 - abs(avg_brightness - 160) / 20.0
+        else:
+            # Too dark or too light
+            brightness_score = 0.0
+        
+        brightness_score = max(0.0, brightness_score)
+        
+        # Check for 4 distinct dark regions
+        _, binary = cv2.threshold(dice_region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Count significant contours
+        significant_regions = []
+        min_area = (h * w) // 100  # Reduced threshold for better detection
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area > min_area:
+                significant_regions.append(contour)
+        
+        # Should have around 4 regions for value 4
+        region_count = len(significant_regions)
+        if region_count == 4:
+            region_score = 1.0
+        elif region_count == 3:
+            region_score = 0.8  # Close but might be missed pip
+        elif region_count == 5:
+            region_score = 0.6  # Might be split pip
+        elif region_count == 2:
+            region_score = 0.4  # Some pips detected
+        else:
+            region_score = 0.0
+        
+        # Combine scores with emphasis on brightness for light dice
+        template_score = (brightness_score * 0.7 + region_score * 0.3)
         
         return template_score
     
