@@ -2,6 +2,7 @@
 """
 AI Dice Detection Test - Pi 3 + IMX500 AI Camera
 Simple test script for TensorFlow Lite dice classification
+Now supports multiple model versions for comparison
 """
 
 import time
@@ -32,14 +33,24 @@ except ImportError as e:
     print("📦 Install: pip3 install tflite-runtime")
     exit(1)
 
-def load_model():
-    """Load the TensorFlow Lite dice model"""
-    model_path = Path("models/edge_impulse/dice_classifier_v2.tflite")
+def load_model(model_version="v3"):
+    """Load the specified TensorFlow Lite dice model"""
+    model_paths = {
+        "v2": "models/edge_impulse/dice_classifier_v2.tflite",
+        "v3": "models/edge_impulse/dice_classifier_v3.tflite"
+    }
+    
+    model_path = Path(model_paths.get(model_version, model_paths["v3"]))
     
     if not model_path.exists():
-        print(f"❌ Model not found: {model_path}")
-        print("📥 Make sure you have the model file in models/edge_impulse/")
-        return None
+        print(f"❌ Model {model_version} not found: {model_path}")
+        available_models = [v for v, p in model_paths.items() if Path(p).exists()]
+        if available_models:
+            print(f"📥 Available models: {', '.join(available_models)}")
+            return None
+        else:
+            print("📥 No models found. Please ensure model files are present.")
+            return None
     
     try:
         interpreter = tf.lite.Interpreter(str(model_path))
@@ -48,14 +59,24 @@ def load_model():
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
         
-        print(f"✅ Model loaded: {model_path.name}")
+        model_size_mb = model_path.stat().st_size / (1024 * 1024)
+        
+        print(f"✅ Model {model_version} loaded: {model_path.name}")
+        print(f"📊 Model size: {model_size_mb:.1f}MB")
         print(f"📊 Input shape: {input_details[0]['shape']}")
         print(f"📊 Output shape: {output_details[0]['shape']}")
         
-        return interpreter, input_details, output_details
+        return {
+            'interpreter': interpreter,
+            'input_details': input_details,
+            'output_details': output_details,
+            'version': model_version,
+            'size_mb': model_size_mb,
+            'path': str(model_path)
+        }
         
     except Exception as e:
-        print(f"❌ Model loading failed: {e}")
+        print(f"❌ Model {model_version} loading failed: {e}")
         return None
 
 def preprocess_image(image, input_details):
@@ -75,9 +96,13 @@ def preprocess_image(image, input_details):
     # Add batch dimension
     return np.expand_dims(processed, axis=0)
 
-def run_inference(interpreter, image, input_details, output_details):
+def run_inference(model_data, image):
     """Run TensorFlow Lite inference on image"""
     try:
+        interpreter = model_data['interpreter']
+        input_details = model_data['input_details']
+        output_details = model_data['output_details']
+        
         # Preprocess image
         input_data = preprocess_image(image, input_details)
         
@@ -94,7 +119,7 @@ def run_inference(interpreter, image, input_details, output_details):
         print(f"⚠️ Inference error: {e}")
         return None
 
-def parse_detection_output(output_data):
+def parse_detection_output(output_data, model_version="v3"):
     """Parse model output for dice detection"""
     # For object detection models, output often contains:
     # [batch, detections, 4_coords + confidence + class_scores]
@@ -152,6 +177,27 @@ def test_ai_acceleration():
         print(f"⚠️ Could not test AI acceleration: {e}")
         return False
 
+def compare_models():
+    """Compare available models"""
+    print("\n🔍 Model Comparison:")
+    
+    models = {}
+    for version in ["v2", "v3"]:
+        model_data = load_model(version)
+        if model_data:
+            models[version] = model_data
+    
+    if len(models) < 2:
+        print("   ⚠️ Need both v2 and v3 models for comparison")
+        return list(models.values())[0] if models else None
+    
+    print(f"   📊 Available models:")
+    for version, data in models.items():
+        print(f"     {version}: {data['size_mb']:.1f}MB - {Path(data['path']).name}")
+    
+    # Return newest model (v3) for testing, but keep both for comparison
+    return models.get("v3", models.get("v2"))
+
 def main():
     """Main testing function"""
     print("🎲 AI Dice Detection Test - Pi 3 + IMX500")
@@ -160,15 +206,13 @@ def main():
     # Test AI acceleration
     ai_acceleration = test_ai_acceleration()
     
-    # Load model
-    model_data = load_model()
+    # Load and compare models
+    model_data = compare_models()
     if not model_data:
         return
     
-    interpreter, input_details, output_details = model_data
-    
     # Initialize camera
-    print("\n📸 Initializing AI Camera...")
+    print(f"\n📸 Initializing AI Camera...")
     try:
         picam2 = Picamera2()
         
@@ -180,8 +224,9 @@ def main():
         picam2.configure(config)
         picam2.start()
         
-        print("✅ Camera ready!")
-        print("🎲 Place dice in view and press Enter to detect...")
+        print(f"✅ Camera ready!")
+        print(f"🎲 Using model: {model_data['version']} ({model_data['size_mb']:.1f}MB)")
+        print(f"🎲 Place dice in view and press Enter to detect...")
         
         while True:
             input("Press Enter to capture and detect (Ctrl+C to exit): ")
@@ -194,17 +239,18 @@ def main():
             
             # Run inference
             inference_start = time.time()
-            output = run_inference(interpreter, image, input_details, output_details)
+            output = run_inference(model_data, image)
             inference_time = time.time() - inference_start
             
             # Parse results
             if output is not None:
-                result = parse_detection_output(output)
+                result = parse_detection_output(output, model_data['version'])
                 total_time = capture_time + inference_time
                 
                 print(f"📊 Result: {result}")
                 print(f"⏱️ Timing: Capture {capture_time*1000:.1f}ms + Inference {inference_time*1000:.1f}ms = {total_time*1000:.1f}ms")
                 print(f"🎥 FPS: {1/total_time:.1f}")
+                print(f"🤖 Model: {model_data['version']} ({model_data['size_mb']:.1f}MB)")
                 
                 if ai_acceleration:
                     print("🚀 Note: AI acceleration available for further optimization")
