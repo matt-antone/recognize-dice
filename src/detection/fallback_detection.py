@@ -200,8 +200,8 @@ class FallbackDetection:
         
         # FIXED: Much more realistic area thresholds for individual pips
         # Individual pips should be small relative to dice face
-        min_dot_area = 8  # Slightly higher minimum to filter noise
-        max_dot_area = dice_region.size // 30  # Slightly smaller maximum (was //25)
+        min_dot_area = 12  # More aggressive noise filtering
+        max_dot_area = dice_region.size // 35  # Even smaller maximum for pips
         
         # Count reasonably sized circular contours
         dot_count = 0
@@ -234,27 +234,33 @@ class FallbackDetection:
         # Take the count that makes more sense (1-6 range)
         final_count = dot_count if 1 <= dot_count <= 6 else dot_count_inv
         
-        # If still not in valid range, use improved brightness/pattern fallback
+        # IMPROVED: Accept near-valid counts and round to nearest valid value
         if not (1 <= final_count <= 6):
-            # IMPROVED: More sophisticated fallback based on dice patterns
-            avg_brightness = np.mean(dice_region)
-            brightness_std = np.std(dice_region)
-            
-            # High contrast (many dots) vs low contrast (few dots)
-            if brightness_std > 60:  # High contrast - likely multiple dots
-                if avg_brightness < 100:  # Dark overall - many dark dots
-                    final_count = 6
-                elif avg_brightness < 130:
-                    final_count = 5  
-                else:
-                    final_count = 4
-            elif brightness_std > 40:  # Medium contrast
-                if avg_brightness < 120:
-                    final_count = 3
-                else:
-                    final_count = 2
-            else:  # Low contrast - likely single dot or empty
-                final_count = 1
+            # If close to valid range, round to nearest valid value
+            if 7 <= final_count <= 8:  # Too many dots detected
+                final_count = 6  # Probably a 6 with noise
+            elif final_count == 0:
+                final_count = 1  # Probably a 1 that wasn't detected
+            else:
+                # Use improved brightness/pattern fallback for extreme cases
+                avg_brightness = np.mean(dice_region)
+                brightness_std = np.std(dice_region)
+                
+                # High contrast (many dots) vs low contrast (few dots)  
+                if brightness_std > 60:  # High contrast - likely multiple dots
+                    if avg_brightness < 100:  # Dark overall - many dark dots
+                        final_count = 6
+                    elif avg_brightness < 130:
+                        final_count = 5  
+                    else:
+                        final_count = 4
+                elif brightness_std > 40:  # Medium contrast
+                    if avg_brightness < 120:
+                        final_count = 3
+                    else:
+                        final_count = 2
+                else:  # Low contrast - likely single dot or empty
+                    final_count = 1
         
         return max(1, min(6, final_count))
     
