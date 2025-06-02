@@ -2,7 +2,6 @@
 """
 Debug False Detection - Understanding Model Output
 Diagnostic script to analyze why dice are detected when none are present
-NOW WITH PREVIEW - See what the camera sees!
 """
 
 import time
@@ -99,7 +98,7 @@ def run_inference_with_debug(model_data, image):
         print(f"⚠️ Inference error: {e}")
         return None, None
 
-def save_debug_images(original_image, model_input_image, confidence, predicted_dice):
+def save_debug_images(original_image, model_input_image, confidence, predicted_dice, actual_dice_count):
     """Save images for debugging analysis"""
     # Create debug directory if it doesn't exist
     debug_dir = Path("debug_images")
@@ -109,7 +108,7 @@ def save_debug_images(original_image, model_input_image, confidence, predicted_d
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     
     # Save original camera image
-    original_path = debug_dir / f"original_{timestamp}_dice{predicted_dice}_conf{confidence:.3f}.jpg"
+    original_path = debug_dir / f"original_{timestamp}_detected{predicted_dice}_actual{actual_dice_count}_conf{confidence:.3f}.jpg"
     cv2.imwrite(str(original_path), original_image)
     
     # Save model input image (what the model actually sees)
@@ -120,7 +119,7 @@ def save_debug_images(original_image, model_input_image, confidence, predicted_d
         else:
             model_save = model_input_image
         
-        model_path = debug_dir / f"model_input_{timestamp}_dice{predicted_dice}_conf{confidence:.3f}.jpg"
+        model_path = debug_dir / f"model_input_{timestamp}_detected{predicted_dice}_actual{actual_dice_count}_conf{confidence:.3f}.jpg"
         cv2.imwrite(str(model_path), model_save)
     
     print(f"💾 Debug images saved:")
@@ -129,58 +128,43 @@ def save_debug_images(original_image, model_input_image, confidence, predicted_d
     
     return original_path, model_path
 
-def show_preview_and_analysis(original_image, model_input_image, confidence, predicted_dice):
-    """Show preview windows and analysis"""
-    try:
-        # Check if we can create windows (display available)
-        cv2.namedWindow("Camera View (Original)", cv2.WINDOW_NORMAL)
-        cv2.namedWindow("Model Input (160x160)", cv2.WINDOW_NORMAL)
-        
-        # Resize windows for better viewing
-        cv2.resizeWindow("Camera View (Original)", 640, 480)
-        cv2.resizeWindow("Model Input (160x160)", 320, 320)
-        
-        # Show original image
-        display_original = original_image.copy()
-        
-        # Add detection info overlay
-        text = f"DETECTED: Dice {predicted_dice} (conf: {confidence:.3f})"
-        color = (0, 0, 255) if confidence > 0.5 else (0, 255, 255)  # Red if confident, yellow if not
-        cv2.putText(display_original, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        cv2.putText(display_original, "Press any key to continue (or wait 5 seconds)", (10, display_original.shape[0] - 20), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        cv2.imshow("Camera View (Original)", display_original)
-        
-        # Show model input (what the AI actually analyzes)
-        if model_input_image is not None:
-            # Convert back to uint8 for display if needed
-            if model_input_image.dtype == np.float32:
-                display_model = (model_input_image * 255).astype(np.uint8)
-            else:
-                display_model = model_input_image
-                
-            # Add detection info to model input view
-            cv2.putText(display_model, f"Dice {predicted_dice}", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(display_model, f"{confidence:.3f}", (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+def get_actual_dice_count():
+    """Ask user how many dice are actually in the frame"""
+    while True:
+        try:
+            user_input = input("🎲 How many dice are actually in the camera view? (0-6 or 'q' to quit): ").strip().lower()
             
-            cv2.imshow("Model Input (160x160)", display_model)
-        
-        # Wait for key press with timeout
-        print(f"👁️ PREVIEW: Check the camera view windows!")
-        print(f"   🎯 What do you see that might look like a dice?")
-        print(f"   ⌨️ Press any key in the preview window (or wait 5 seconds)")
-        
-        # Wait for key press with 5 second timeout
-        key = cv2.waitKey(5000)  # 5 second timeout
-        cv2.destroyAllWindows()
-        
-        print(f"✅ Preview closed")
-        
-    except Exception as e:
-        print(f"⚠️ Preview failed (no display?): {e}")
-        print(f"💾 Check saved images in debug_images/ folder instead")
-        cv2.destroyAllWindows()
+            if user_input == 'q':
+                return None
+            
+            dice_count = int(user_input)
+            if 0 <= dice_count <= 6:
+                return dice_count
+            else:
+                print("⚠️ Please enter a number between 0 and 6")
+                
+        except ValueError:
+            print("⚠️ Please enter a valid number (0-6) or 'q' to quit")
+
+def analyze_detection_accuracy(predicted_dice, confidence, actual_dice_count):
+    """Analyze the accuracy of the detection"""
+    print(f"\n📊 DETECTION ACCURACY ANALYSIS:")
+    print(f"   🤖 Model detected: Dice {predicted_dice} (conf: {confidence:.3f})")
+    print(f"   👁️ Actually in frame: {actual_dice_count} dice")
+    
+    if actual_dice_count == 0:
+        if confidence > 0.5:
+            accuracy = "❌ FALSE POSITIVE (High confidence)"
+        else:
+            accuracy = "⚠️ FALSE POSITIVE (Low confidence)"
+    elif actual_dice_count == 1:
+        accuracy = "🔍 SINGLE DICE - Check if value correct"
+    else:
+        accuracy = f"🔍 MULTIPLE DICE ({actual_dice_count}) - Model only detected 1"
+    
+    print(f"   📈 Result: {accuracy}")
+    
+    return accuracy
 
 def analyze_output_in_detail(output_data):
     """Analyze model output in detail to understand false positives"""
@@ -204,9 +188,9 @@ def analyze_output_in_detail(output_data):
         print(f"\n🎯 HIGHEST PROBABILITY:")
         print(f"   Class {max_idx} (Dice {predicted_dice}): {max_prob:.6f}")
         
-        # Show top 10 detections for analysis
-        print(f"\n🔝 TOP 10 DETECTIONS:")
-        top_indices = np.argsort(class_probs)[-10:][::-1]  # Top 10 in descending order
+        # Show top 5 detections for analysis (reduced from 10 for cleaner output)
+        print(f"\n🔝 TOP 5 DETECTIONS:")
+        top_indices = np.argsort(class_probs)[-5:][::-1]  # Top 5 in descending order
         for i, idx in enumerate(top_indices):
             dice_value = (idx % 6) + 1
             prob = class_probs[idx]
@@ -214,7 +198,7 @@ def analyze_output_in_detail(output_data):
         
         # Apply different confidence thresholds
         print(f"\n🚪 CONFIDENCE THRESHOLDS:")
-        thresholds = [0.1, 0.3, 0.5, 0.7, 0.9]
+        thresholds = [0.3, 0.5, 0.7, 0.9]
         for thresh in thresholds:
             if max_prob > thresh:
                 result = f"Dice {predicted_dice} (conf: {max_prob:.3f})"
@@ -264,8 +248,8 @@ def improved_detection_with_threshold(output_data, confidence_threshold=0.5):
 
 def main():
     """Main diagnostic function"""
-    print("🔍 Debug False Detection - Model Output Analysis WITH PREVIEW")
-    print("=" * 70)
+    print("🔍 Debug False Detection - Model vs Reality Analysis")
+    print("=" * 60)
     
     # Load model
     model_data = load_model()
@@ -285,14 +269,18 @@ def main():
         picam2.start()
         
         print(f"✅ Camera ready!")
-        print(f"👁️ PREVIEW MODE: You'll see what the camera sees!")
-        print(f"🎯 Take images with NO DICE to debug false positives")
-        print(f"📋 This script will show detailed model output analysis")
+        print(f"🎯 This script compares what the model detects vs reality")
+        print(f"📋 You'll tell us how many dice are actually visible")
         print(f"💾 Images will be saved to debug_images/ folder")
         
         while True:
             try:
                 input("\n📸 Press Enter to capture and analyze (Ctrl+C to exit): ")
+                
+                # Get actual dice count from user
+                actual_dice_count = get_actual_dice_count()
+                if actual_dice_count is None:
+                    break  # User chose to quit
                 
                 # Capture image
                 image = picam2.capture_array()
@@ -304,11 +292,11 @@ def main():
                     # Detailed analysis
                     predicted_dice, confidence = analyze_output_in_detail(output)
                     
-                    # Save debug images
-                    save_debug_images(image, model_input_image, confidence, predicted_dice)
+                    # Analyze accuracy
+                    accuracy = analyze_detection_accuracy(predicted_dice, confidence, actual_dice_count)
                     
-                    # Show preview and analysis
-                    show_preview_and_analysis(image, model_input_image, confidence, predicted_dice)
+                    # Save debug images with both detected and actual info
+                    save_debug_images(image, model_input_image, confidence, predicted_dice, actual_dice_count)
                     
                     # Test different confidence thresholds
                     print(f"\n🎯 RECOMMENDED DETECTION LOGIC:")
@@ -316,8 +304,7 @@ def main():
                         result = improved_detection_with_threshold(output, threshold)
                         print(f"   Threshold {threshold}: {result}")
                     
-                    print("=" * 70)
-                    print(f"💡 TIP: Check the preview windows to see what the camera detected!")
+                    print("=" * 60)
                     print(f"💾 Check debug_images/ folder for saved images")
                 else:
                     print("❌ Inference failed")
@@ -335,7 +322,6 @@ def main():
             picam2.stop()
         except:
             pass
-        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main() 
