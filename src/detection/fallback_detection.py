@@ -102,7 +102,7 @@ class FallbackDetection:
         return filtered
     
     def _detect_by_contours(self, gray: np.ndarray) -> List[dict]:
-        """Detect dice using contour detection (improved for rounded edges and angled views)."""
+        """Detect dice using contour detection (relaxed for real-world conditions)."""
         detections = []
         
         # Edge detection with conservative parameters
@@ -114,37 +114,24 @@ class FallbackDetection:
         for contour in contours:
             area = cv2.contourArea(contour)
             
-            # Filter by area (now much stricter to avoid detecting pips as dice)
+            # Filter by area (prevent pips being detected as dice)
             if not (self.min_dice_area < area < self.max_dice_area):
                 continue
             
-            # Calculate bounding box first
+            # Calculate bounding box
             x, y, w, h = cv2.boundingRect(contour)
             
-            # IMPROVED: Better detection for rounded dice
-            # Check if contour is roughly dice-sized and shaped
+            # RELAXED: Much more permissive constraints for real dice
             
-            # 1. Aspect ratio check (allow for perspective)
+            # 1. Aspect ratio check (very permissive for angled views)
             aspect_ratio = float(w) / h
-            if not (0.3 <= aspect_ratio <= 3.3):
+            if not (0.2 <= aspect_ratio <= 5.0):  # Very wide range for extreme angles
                 continue
             
-            # 2. Solidity check (how much of bounding box is filled)
-            # Rounded dice should have good solidity
-            hull = cv2.convexHull(contour)
-            hull_area = cv2.contourArea(hull)
-            if hull_area > 0:
-                solidity = area / hull_area
-                if solidity < 0.6:  # Dice should be reasonably solid shapes
-                    continue
+            # 2. REMOVED strict solidity check - was filtering rounded dice
+            # 3. REMOVED strict extent check - was filtering angled dice
             
-            # 3. Extent check (how much of bounding box is filled by contour)
-            bbox_area = w * h
-            extent = area / bbox_area
-            if extent < 0.4:  # Dice should fill reasonable portion of bounding box
-                continue
-            
-            # If it passes all shape tests, it's likely a dice
+            # If it passes basic size and aspect tests, it's likely a dice
             dice_region = gray[y:y+h, x:x+w]
             dice_value = self._estimate_dice_value(dice_region)
             
@@ -194,73 +181,147 @@ class FallbackDetection:
     def _estimate_dice_value(self, dice_region: np.ndarray) -> int:
         """
         Estimate dice value by analyzing dots/pips in the dice region.
-        Improved for colored dice and angled views.
+        Improved for colored dice, rounded dice, and angled views.
         """
         if dice_region.size == 0:
             return 1
         
-        # Try multiple thresholding approaches for colored dice
+        # Try multiple approaches for robust detection
         dot_counts = []
         
-        # Method 1: OTSU thresholding (works for black/white dice)
+        # Approach 1: Edge-based detection (works better for colored dice)
+        edges = cv2.Canny(dice_region, 30, 100)
+        dot_count_edges = self._count_dots_from_edges(edges, dice_region.size)
+        if 1 <= dot_count_edges <= 6:
+            dot_counts.append(dot_count_edges)
+        
+        # Approach 2: Multiple thresholding (for traditional dice)
+        thresholding_counts = self._try_thresholding_methods(dice_region)
+        dot_counts.extend(thresholding_counts)
+        
+        # Approach 3: Template matching for common pip patterns
+        template_count = self._estimate_from_pattern(dice_region)
+        if 1 <= template_count <= 6:
+            dot_counts.append(template_count)
+        
+        # Find consensus from valid counts
+        if dot_counts:
+            # Use most common count, or median if no clear winner
+            final_count = max(set(dot_counts), key=dot_counts.count)
+        else:
+            # Fallback to brightness analysis
+            final_count = self._brightness_fallback(dice_region)
+        
+        return max(1, min(6, final_count))
+    
+    def _count_dots_from_edges(self, edges: np.ndarray, dice_face_area: int) -> int:
+        """Count dots using edge detection - works better for colored dice."""
+        # Find circular contours in edge image
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        min_dot_area = 10  # Smaller minimum for edge detection
+        max_dot_area = 100  # Larger maximum for better coverage
+        relative_max_area = dice_face_area // 30
+        
+        dot_count = 0
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            max_area_limit = min(max_dot_area, relative_max_area)
+            
+            if min_dot_area < area < max_area_limit:
+                # Check if roughly circular
+                perimeter = cv2.arcLength(contour, True)
+                if perimeter > 0:
+                    circularity = 4 * np.pi * area / (perimeter * perimeter)
+                    if circularity > 0.2:  # Very lenient for edge detection
+                        dot_count += 1
+        
+        return dot_count
+    
+    def _try_thresholding_methods(self, dice_region: np.ndarray) -> list:
+        """Try multiple thresholding approaches and return valid counts."""
+        valid_counts = []
+        
+        # Method 1: OTSU thresholding
         _, binary_otsu = cv2.threshold(dice_region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        dot_count_otsu = self._count_dots_in_binary(binary_otsu, dice_region.size)
-        dot_counts.append(('otsu', dot_count_otsu))
+        count = self._count_dots_in_binary(binary_otsu, dice_region.size)
+        if 1 <= count <= 6:
+            valid_counts.append(count)
         
-        # Method 2: Fixed threshold (works for colored dice with consistent lighting)
-        mean_brightness = np.mean(dice_region)
-        threshold_val = int(mean_brightness * 0.8)  # 80% of mean brightness
-        _, binary_fixed = cv2.threshold(dice_region, threshold_val, 255, cv2.THRESH_BINARY)
-        dot_count_fixed = self._count_dots_in_binary(binary_fixed, dice_region.size)
-        dot_counts.append(('fixed', dot_count_fixed))
+        # Try inverted OTSU
+        count_inv = self._count_dots_in_binary(cv2.bitwise_not(binary_otsu), dice_region.size)
+        if 1 <= count_inv <= 6:
+            valid_counts.append(count_inv)
         
-        # Method 3: Adaptive threshold (works for varying lighting)
+        # Method 2: Adaptive threshold
         binary_adaptive = cv2.adaptiveThreshold(
             dice_region, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
         )
-        dot_count_adaptive = self._count_dots_in_binary(binary_adaptive, dice_region.size)
-        dot_counts.append(('adaptive', dot_count_adaptive))
+        count = self._count_dots_in_binary(binary_adaptive, dice_region.size)
+        if 1 <= count <= 6:
+            valid_counts.append(count)
         
-        # Also try inverted versions for each method
-        for method_name, count in dot_counts.copy():
-            if method_name == 'otsu':
-                binary_inv = cv2.bitwise_not(binary_otsu)
-            elif method_name == 'fixed':
-                binary_inv = cv2.bitwise_not(binary_fixed)
-            else:  # adaptive
-                binary_inv = cv2.bitwise_not(binary_adaptive)
-            
-            dot_count_inv = self._count_dots_in_binary(binary_inv, dice_region.size)
-            dot_counts.append((f'{method_name}_inv', dot_count_inv))
+        return valid_counts
+    
+    def _estimate_from_pattern(self, dice_region: np.ndarray) -> int:
+        """Estimate dice value from overall pattern and distribution."""
+        # Analyze the spatial distribution of dark/bright regions
+        h, w = dice_region.shape
         
-        # Find the most reasonable count (1-6 range)
-        valid_counts = [count for name, count in dot_counts if 1 <= count <= 6]
+        # Divide dice face into regions and analyze distribution
+        center_region = dice_region[h//3:2*h//3, w//3:2*w//3]
+        corner_regions = [
+            dice_region[0:h//3, 0:w//3],      # Top-left
+            dice_region[0:h//3, 2*w//3:w],    # Top-right  
+            dice_region[2*h//3:h, 0:w//3],    # Bottom-left
+            dice_region[2*h//3:h, 2*w//3:w]   # Bottom-right
+        ]
         
-        if valid_counts:
-            # Use the most common valid count, or median if tied
-            final_count = max(set(valid_counts), key=valid_counts.count)
+        # Count regions with significant dark spots
+        threshold = np.mean(dice_region) * 0.7
+        
+        regions_with_dots = 0
+        if np.min(center_region) < threshold:
+            regions_with_dots += 1
+        
+        for corner in corner_regions:
+            if corner.size > 0 and np.min(corner) < threshold:
+                regions_with_dots += 1
+        
+        # Map region patterns to dice values
+        if regions_with_dots <= 1:
+            return 1
+        elif regions_with_dots == 2:
+            return 2
+        elif regions_with_dots == 3:
+            return 3
+        elif regions_with_dots == 4:
+            return 4
+        elif regions_with_dots == 5:
+            return 5
         else:
-            # All methods failed, use improved brightness/pattern fallback
-            avg_brightness = np.mean(dice_region)
-            brightness_std = np.std(dice_region)
-            
-            # IMPROVED: Better fallback for colored dice
-            if brightness_std > 60:  # High contrast - likely multiple dots
-                if avg_brightness < 100:  # Dark overall - many dark dots
-                    final_count = 6
-                elif avg_brightness < 130:
-                    final_count = 5  
-                else:
-                    final_count = 4
-            elif brightness_std > 40:  # Medium contrast
-                if avg_brightness < 120:
-                    final_count = 3
-                else:
-                    final_count = 2
-            else:  # Low contrast - likely single dot or empty
-                final_count = 1
+            return 6
+    
+    def _brightness_fallback(self, dice_region: np.ndarray) -> int:
+        """Fallback estimation based on brightness and contrast."""
+        avg_brightness = np.mean(dice_region)
+        brightness_std = np.std(dice_region)
         
-        return max(1, min(6, final_count))
+        # Higher contrast usually means more dots
+        if brightness_std > 60:
+            if avg_brightness < 100:
+                return 6
+            elif avg_brightness < 130:
+                return 5  
+            else:
+                return 4
+        elif brightness_std > 40:
+            if avg_brightness < 120:
+                return 3
+            else:
+                return 2
+        else:
+            return 1
     
     def _count_dots_in_binary(self, binary: np.ndarray, dice_face_area: int) -> int:
         """Count dots in a binary image using the optimized parameters."""
