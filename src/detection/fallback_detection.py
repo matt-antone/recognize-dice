@@ -15,18 +15,19 @@ class FallbackDetection:
         self.config = config
         
         # Detection parameters optimized based on debug results
-        self.min_dice_area = 100
-        self.max_dice_area = 5000
+        # FIXED: Much stricter area limits to prevent pips being detected as dice
+        self.min_dice_area = 800   # Minimum ~30x30 pixel dice (much larger than individual pips)
+        self.max_dice_area = 8000  # Maximum dice size for reasonable camera distance
         self.min_circularity = 0.3
         self.min_convexity = 0.5
         
         # Edge filtering - exclude objects too close to frame boundaries
         self.edge_margin = 30  # Minimum distance from frame edge
         
-        # Blob detector setup (showed good results in debug)
+        # Blob detector setup (uses strict area limits to prevent pip detection as dice)
         params = cv2.SimpleBlobDetector_Params()
         params.filterByArea = True
-        params.minArea = self.min_dice_area
+        params.minArea = self.min_dice_area  # Now 800+ pixels (prevents pips being detected as dice)
         params.maxArea = self.max_dice_area
         params.filterByCircularity = True
         params.minCircularity = self.min_circularity
@@ -101,7 +102,7 @@ class FallbackDetection:
         return filtered
     
     def _detect_by_contours(self, gray: np.ndarray) -> List[dict]:
-        """Detect dice using contour detection (improved for angled views and colors)."""
+        """Detect dice using contour detection (improved for rounded edges and angled views)."""
         detections = []
         
         # Edge detection with conservative parameters
@@ -113,34 +114,48 @@ class FallbackDetection:
         for contour in contours:
             area = cv2.contourArea(contour)
             
-            # Filter by area
+            # Filter by area (now much stricter to avoid detecting pips as dice)
             if not (self.min_dice_area < area < self.max_dice_area):
                 continue
             
-            # Approximate contour to polygon
-            epsilon = 0.03 * cv2.arcLength(contour, True)  # More lenient approximation
-            approx = cv2.approxPolyDP(contour, epsilon, True)
+            # Calculate bounding box first
+            x, y, w, h = cv2.boundingRect(contour)
             
-            # IMPROVED: Accept more shapes for angled dice views
-            if 3 <= len(approx) <= 10:  # Triangles to octagons (angled dice can be any of these)
-                # Calculate bounding box
-                x, y, w, h = cv2.boundingRect(contour)
-                
-                # RELAXED: Much more permissive aspect ratio for angled views
-                aspect_ratio = float(w) / h
-                if 0.3 <= aspect_ratio <= 3.3:  # Allow more distortion from perspective
-                    # Estimate dice value by analyzing the region
-                    dice_region = gray[y:y+h, x:x+w]
-                    dice_value = self._estimate_dice_value(dice_region)
-                    
-                    detections.append({
-                        'method': 'contour',
-                        'bbox': [x, y, w, h],
-                        'center': (x + w//2, y + h//2),
-                        'value': dice_value,
-                        'confidence': 0.7,  # Moderate confidence for CV
-                        'area': area
-                    })
+            # IMPROVED: Better detection for rounded dice
+            # Check if contour is roughly dice-sized and shaped
+            
+            # 1. Aspect ratio check (allow for perspective)
+            aspect_ratio = float(w) / h
+            if not (0.3 <= aspect_ratio <= 3.3):
+                continue
+            
+            # 2. Solidity check (how much of bounding box is filled)
+            # Rounded dice should have good solidity
+            hull = cv2.convexHull(contour)
+            hull_area = cv2.contourArea(hull)
+            if hull_area > 0:
+                solidity = area / hull_area
+                if solidity < 0.6:  # Dice should be reasonably solid shapes
+                    continue
+            
+            # 3. Extent check (how much of bounding box is filled by contour)
+            bbox_area = w * h
+            extent = area / bbox_area
+            if extent < 0.4:  # Dice should fill reasonable portion of bounding box
+                continue
+            
+            # If it passes all shape tests, it's likely a dice
+            dice_region = gray[y:y+h, x:x+w]
+            dice_value = self._estimate_dice_value(dice_region)
+            
+            detections.append({
+                'method': 'contour',
+                'bbox': [x, y, w, h],
+                'center': (x + w//2, y + h//2),
+                'value': dice_value,
+                'confidence': 0.7,
+                'area': area
+            })
         
         return detections
     
