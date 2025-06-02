@@ -8,6 +8,7 @@ import sys
 import os
 import cv2
 import numpy as np
+from datetime import datetime
 
 # Add src directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -21,17 +22,26 @@ except ImportError as e:
     sys.exit(1)
 
 
-def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
+def create_debug_directory():
+    """Create a timestamped directory for debug output."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    debug_dir = f"debug_session_{timestamp}"
+    os.makedirs(debug_dir, exist_ok=True)
+    print(f"Debug files will be saved to: {debug_dir}/")
+    return debug_dir
+
+
+def debug_detection_pipeline(frame: np.ndarray, frame_num: int, debug_dir: str):
     """Debug the detection pipeline step by step."""
     print(f"\n=== Debugging Frame {frame_num} ===")
     print(f"Frame shape: {frame.shape}")
     
     # Save original frame
-    cv2.imwrite(f"debug_01_original_{frame_num}.jpg", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(f"{debug_dir}/debug_01_original_{frame_num}.jpg", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     
     # Step 1: Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-    cv2.imwrite(f"debug_02_gray_{frame_num}.jpg", gray)
+    cv2.imwrite(f"{debug_dir}/debug_02_gray_{frame_num}.jpg", gray)
     gray_mean, gray_std = np.mean(gray), np.std(gray)
     print(f"Gray stats: mean={gray_mean:.1f}, std={gray_std:.1f}")
     
@@ -52,19 +62,19 @@ def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
     
     # Step 2: Bilateral filter
     filtered = cv2.bilateralFilter(gray, 9, 75, 75)
-    cv2.imwrite(f"debug_03_filtered_{frame_num}.jpg", filtered)
+    cv2.imwrite(f"{debug_dir}/debug_03_filtered_{frame_num}.jpg", filtered)
     
     # Step 3: CLAHE enhancement
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     enhanced = clahe.apply(filtered)
-    cv2.imwrite(f"debug_04_enhanced_{frame_num}.jpg", enhanced)
+    cv2.imwrite(f"{debug_dir}/debug_04_enhanced_{frame_num}.jpg", enhanced)
     enhanced_mean, enhanced_std = np.mean(enhanced), np.std(enhanced)
     print(f"Enhanced stats: mean={enhanced_mean:.1f}, std={enhanced_std:.1f}")
     print(f"  → Contrast improvement: {enhanced_std - gray_std:.1f}")
     
     # Step 4: Gaussian blur
     blurred = cv2.GaussianBlur(enhanced, (5, 5), 1)
-    cv2.imwrite(f"debug_05_blurred_{frame_num}.jpg", blurred)
+    cv2.imwrite(f"{debug_dir}/debug_05_blurred_{frame_num}.jpg", blurred)
     
     # Step 5: Try multiple HoughCircles parameter sets
     param_sets = [
@@ -113,7 +123,7 @@ def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
                 cv2.putText(debug_img, f"r={r}", (x-20, y-r-10), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
         
-        cv2.imwrite(f"debug_06_circles_{params['name'].lower().replace(' ', '_')}_{frame_num}.jpg", debug_img)
+        cv2.imwrite(f"{debug_dir}/debug_06_circles_{params['name'].lower().replace(' ', '_')}_{frame_num}.jpg", debug_img)
         
         if circle_count > best_count:
             best_circles = circles
@@ -124,7 +134,7 @@ def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
     
     # Step 6: Try edge detection to see what edges are found
     edges = cv2.Canny(blurred, 50, 150)
-    cv2.imwrite(f"debug_07_edges_{frame_num}.jpg", edges)
+    cv2.imwrite(f"{debug_dir}/debug_07_edges_{frame_num}.jpg", edges)
     edge_pixels = np.sum(edges > 0)
     total_pixels = edges.shape[0] * edges.shape[1]
     edge_percentage = (edge_pixels / total_pixels) * 100
@@ -167,7 +177,7 @@ def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
     # Draw detected blobs
     blob_img = cv2.drawKeypoints(enhanced, keypoints, np.array([]), (0,0,255), 
                                 cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    cv2.imwrite(f"debug_08_blobs_{frame_num}.jpg", blob_img)
+    cv2.imwrite(f"{debug_dir}/debug_08_blobs_{frame_num}.jpg", blob_img)
     
     # Step 8: Try contour detection for rectangular shapes (dice are cubes)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -195,7 +205,7 @@ def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
     # Draw contours
     contour_img = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
     cv2.drawContours(contour_img, dice_contours, -1, (0, 255, 0), 2)
-    cv2.imwrite(f"debug_09_contours_{frame_num}.jpg", contour_img)
+    cv2.imwrite(f"{debug_dir}/debug_09_contours_{frame_num}.jpg", contour_img)
     
     # Overall assessment
     print(f"\n--- Frame {frame_num} Assessment ---")
@@ -223,10 +233,56 @@ def debug_detection_pipeline(frame: np.ndarray, frame_num: int):
     return best_circles, len(keypoints), len(dice_contours)
 
 
+def save_debug_summary(debug_dir: str, session_results: list):
+    """Save a text summary of the debug session."""
+    summary_file = f"{debug_dir}/debug_summary.txt"
+    
+    with open(summary_file, 'w') as f:
+        f.write(f"D6 Dice Recognition - Debug Session Summary\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"=" * 50 + "\n\n")
+        
+        for i, (frame_num, circles, blobs, contours) in enumerate(session_results):
+            f.write(f"Frame {frame_num}:\n")
+            f.write(f"  HoughCircles: {circles} detections\n")
+            f.write(f"  Blob Detection: {blobs} detections\n")
+            f.write(f"  Contour Detection: {contours} detections\n")
+            best_method = max([("HoughCircles", circles), ("Blob", blobs), ("Contour", contours)], key=lambda x: x[1])
+            f.write(f"  Best method: {best_method[0]} ({best_method[1]} objects)\n\n")
+        
+        # Overall recommendations
+        all_circles = [r[1] for r in session_results]
+        all_blobs = [r[2] for r in session_results]
+        all_contours = [r[3] for r in session_results]
+        
+        f.write("Overall Analysis:\n")
+        f.write(f"  Average HoughCircles detections: {np.mean(all_circles):.1f}\n")
+        f.write(f"  Average Blob detections: {np.mean(all_blobs):.1f}\n")
+        f.write(f"  Average Contour detections: {np.mean(all_contours):.1f}\n\n")
+        
+        best_overall = max([("HoughCircles", np.mean(all_circles)), 
+                           ("Blob Detection", np.mean(all_blobs)), 
+                           ("Contour Detection", np.mean(all_contours))], key=lambda x: x[1])
+        
+        f.write(f"Recommended detection method: {best_overall[0]}\n")
+        
+        if best_overall[1] < 1:
+            f.write("\nRecommendations:\n")
+            f.write("- Check lighting conditions\n")
+            f.write("- Ensure dice are clearly visible against background\n")
+            f.write("- Try different dice sizes or distances\n")
+            f.write("- Consider adjusting detection parameters\n")
+    
+    print(f"\nDebug summary saved to: {summary_file}")
+
+
 def test_debug():
     """Run debug detection test."""
     print("D6 Dice Recognition - Debug Detection")
     print("=" * 40)
+    
+    # Create debug directory
+    debug_dir = create_debug_directory()
     
     logger = setup_logger(__name__)
     config = Config()
@@ -241,12 +297,16 @@ def test_debug():
         print("Place dice in view and press Enter to capture debug frames")
         input("Press Enter when ready...")
         
+        session_results = []
+        
         # Capture a few frames for analysis
         for i in range(3):
             print(f"\nCapturing debug frame {i+1}...")
             frame = camera.capture_frame()
             if frame is not None:
-                circles, blobs, contours = debug_detection_pipeline(frame, i+1)
+                circles, blobs, contours = debug_detection_pipeline(frame, i+1, debug_dir)
+                session_results.append((i+1, len(circles[0]) if circles is not None else 0, blobs, contours))
+                
                 print(f"Frame {i+1} summary:")
                 print(f"  Circles: {len(circles[0]) if circles is not None else 0}")
                 print(f"  Blobs: {blobs}")
@@ -258,12 +318,13 @@ def test_debug():
         camera.stop()
         camera.cleanup()
         
+        # Save debug summary
+        save_debug_summary(debug_dir, session_results)
+        
         print(f"\n✅ Debug analysis complete!")
-        print("Check the debug_*.jpg files to see what the detection pipeline sees.")
-        print("\nLook for:")
-        print("- Are dice visible in the original image?")
-        print("- Do the preprocessing steps help or hurt?")
-        print("- Which detection method finds the most dice?")
+        print(f"All debug files saved to: {debug_dir}/")
+        print(f"Copy to your Mac with:")
+        print(f"  scp -r pi@your-pi-ip:~/Documents/recognize-dice/{debug_dir} ~/Desktop/")
         
     except Exception as e:
         print(f"❌ Debug test failed: {e}")
