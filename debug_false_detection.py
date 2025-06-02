@@ -131,45 +131,56 @@ def save_debug_images(original_image, model_input_image, confidence, predicted_d
 
 def show_preview_and_analysis(original_image, model_input_image, confidence, predicted_dice):
     """Show preview windows and analysis"""
-    # Create preview windows
-    cv2.namedWindow("Camera View (Original)", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Model Input (160x160)", cv2.WINDOW_NORMAL)
-    
-    # Resize windows for better viewing
-    cv2.resizeWindow("Camera View (Original)", 640, 480)
-    cv2.resizeWindow("Model Input (160x160)", 320, 320)
-    
-    # Show original image
-    display_original = original_image.copy()
-    
-    # Add detection info overlay
-    text = f"DETECTED: Dice {predicted_dice} (conf: {confidence:.3f})"
-    color = (0, 0, 255) if confidence > 0.5 else (0, 255, 255)  # Red if confident, yellow if not
-    cv2.putText(display_original, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-    cv2.putText(display_original, "Press any key to continue", (10, display_original.shape[0] - 20), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
-    cv2.imshow("Camera View (Original)", display_original)
-    
-    # Show model input (what the AI actually analyzes)
-    if model_input_image is not None:
-        # Convert back to uint8 for display if needed
-        if model_input_image.dtype == np.float32:
-            display_model = (model_input_image * 255).astype(np.uint8)
-        else:
-            display_model = model_input_image
-            
-        # Add detection info to model input view
-        cv2.putText(display_model, f"Dice {predicted_dice}", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.putText(display_model, f"{confidence:.3f}", (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    try:
+        # Check if we can create windows (display available)
+        cv2.namedWindow("Camera View (Original)", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Model Input (160x160)", cv2.WINDOW_NORMAL)
         
-        cv2.imshow("Model Input (160x160)", display_model)
-    
-    # Wait for key press
-    print(f"👁️ PREVIEW: Check the camera view windows!")
-    print(f"   🎯 What do you see that might look like a dice?")
-    cv2.waitKey(0)  # Wait for any key press
-    cv2.destroyAllWindows()
+        # Resize windows for better viewing
+        cv2.resizeWindow("Camera View (Original)", 640, 480)
+        cv2.resizeWindow("Model Input (160x160)", 320, 320)
+        
+        # Show original image
+        display_original = original_image.copy()
+        
+        # Add detection info overlay
+        text = f"DETECTED: Dice {predicted_dice} (conf: {confidence:.3f})"
+        color = (0, 0, 255) if confidence > 0.5 else (0, 255, 255)  # Red if confident, yellow if not
+        cv2.putText(display_original, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        cv2.putText(display_original, "Press any key to continue (or wait 5 seconds)", (10, display_original.shape[0] - 20), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        cv2.imshow("Camera View (Original)", display_original)
+        
+        # Show model input (what the AI actually analyzes)
+        if model_input_image is not None:
+            # Convert back to uint8 for display if needed
+            if model_input_image.dtype == np.float32:
+                display_model = (model_input_image * 255).astype(np.uint8)
+            else:
+                display_model = model_input_image
+                
+            # Add detection info to model input view
+            cv2.putText(display_model, f"Dice {predicted_dice}", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(display_model, f"{confidence:.3f}", (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            cv2.imshow("Model Input (160x160)", display_model)
+        
+        # Wait for key press with timeout
+        print(f"👁️ PREVIEW: Check the camera view windows!")
+        print(f"   🎯 What do you see that might look like a dice?")
+        print(f"   ⌨️ Press any key in the preview window (or wait 5 seconds)")
+        
+        # Wait for key press with 5 second timeout
+        key = cv2.waitKey(5000)  # 5 second timeout
+        cv2.destroyAllWindows()
+        
+        print(f"✅ Preview closed")
+        
+    except Exception as e:
+        print(f"⚠️ Preview failed (no display?): {e}")
+        print(f"💾 Check saved images in debug_images/ folder instead")
+        cv2.destroyAllWindows()
 
 def analyze_output_in_detail(output_data):
     """Analyze model output in detail to understand false positives"""
@@ -280,35 +291,40 @@ def main():
         print(f"💾 Images will be saved to debug_images/ folder")
         
         while True:
-            input("\n📸 Press Enter to capture and analyze (Ctrl+C to exit): ")
-            
-            # Capture image
-            image = picam2.capture_array()
-            
-            # Run inference with debug
-            output, model_input_image = run_inference_with_debug(model_data, image)
-            
-            if output is not None:
-                # Detailed analysis
-                predicted_dice, confidence = analyze_output_in_detail(output)
+            try:
+                input("\n📸 Press Enter to capture and analyze (Ctrl+C to exit): ")
                 
-                # Save debug images
-                save_debug_images(image, model_input_image, confidence, predicted_dice)
+                # Capture image
+                image = picam2.capture_array()
                 
-                # Show preview and analysis
-                show_preview_and_analysis(image, model_input_image, confidence, predicted_dice)
+                # Run inference with debug
+                output, model_input_image = run_inference_with_debug(model_data, image)
                 
-                # Test different confidence thresholds
-                print(f"\n🎯 RECOMMENDED DETECTION LOGIC:")
-                for threshold in [0.3, 0.5, 0.7]:
-                    result = improved_detection_with_threshold(output, threshold)
-                    print(f"   Threshold {threshold}: {result}")
-                
-                print("=" * 70)
-                print(f"💡 TIP: Check the preview windows to see what the camera detected!")
-                print(f"💾 Check debug_images/ folder for saved images")
-            else:
-                print("❌ Inference failed")
+                if output is not None:
+                    # Detailed analysis
+                    predicted_dice, confidence = analyze_output_in_detail(output)
+                    
+                    # Save debug images
+                    save_debug_images(image, model_input_image, confidence, predicted_dice)
+                    
+                    # Show preview and analysis
+                    show_preview_and_analysis(image, model_input_image, confidence, predicted_dice)
+                    
+                    # Test different confidence thresholds
+                    print(f"\n🎯 RECOMMENDED DETECTION LOGIC:")
+                    for threshold in [0.3, 0.5, 0.7]:
+                        result = improved_detection_with_threshold(output, threshold)
+                        print(f"   Threshold {threshold}: {result}")
+                    
+                    print("=" * 70)
+                    print(f"💡 TIP: Check the preview windows to see what the camera detected!")
+                    print(f"💾 Check debug_images/ folder for saved images")
+                else:
+                    print("❌ Inference failed")
+                    
+            except KeyboardInterrupt:
+                print("\n👋 Stopping analysis...")
+                break
             
     except KeyboardInterrupt:
         print("\n👋 Stopping analysis...")
