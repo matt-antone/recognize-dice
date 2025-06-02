@@ -20,6 +20,9 @@ class FallbackDetection:
         self.min_circularity = 0.3
         self.min_convexity = 0.5
         
+        # Edge filtering - exclude objects too close to frame boundaries
+        self.edge_margin = 30  # Minimum distance from frame edge
+        
         # Blob detector setup (showed good results in debug)
         params = cv2.SimpleBlobDetector_Params()
         params.filterByArea = True
@@ -39,6 +42,9 @@ class FallbackDetection:
         if frame is None:
             return []
         
+        # Store frame dimensions for edge filtering
+        self.frame_height, self.frame_width = frame.shape[:2]
+        
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         
@@ -52,9 +58,47 @@ class FallbackDetection:
         
         # Combine and deduplicate detections
         all_detections = contour_dice + blob_dice
-        final_detections = self._deduplicate_detections(all_detections)
+        
+        # Filter out edge detections (containers, partial objects)
+        edge_filtered = self._filter_edge_detections(all_detections)
+        
+        # Final deduplication
+        final_detections = self._deduplicate_detections(edge_filtered)
         
         return final_detections
+    
+    def _is_too_close_to_edge(self, bbox: List[int], center: Tuple[int, int]) -> bool:
+        """Check if detection is too close to frame edges (likely container/partial object)."""
+        x, y, w, h = bbox
+        center_x, center_y = center
+        
+        # Check if bounding box or center is too close to any edge
+        if (x < self.edge_margin or 
+            y < self.edge_margin or 
+            x + w > self.frame_width - self.edge_margin or 
+            y + h > self.frame_height - self.edge_margin or
+            center_x < self.edge_margin or 
+            center_y < self.edge_margin or
+            center_x > self.frame_width - self.edge_margin or 
+            center_y > self.frame_height - self.edge_margin):
+            return True
+        
+        return False
+    
+    def _filter_edge_detections(self, detections: List[dict]) -> List[dict]:
+        """Remove detections that are too close to frame edges."""
+        filtered = []
+        
+        for detection in detections:
+            if not self._is_too_close_to_edge(detection['bbox'], detection['center']):
+                filtered.append(detection)
+            # Debug info for edge filtering
+            else:
+                center = detection['center']
+                method = detection['method']
+                print(f"  Filtered out {method} detection at ({center[0]}, {center[1]}) - too close to edge")
+        
+        return filtered
     
     def _detect_by_contours(self, gray: np.ndarray) -> List[dict]:
         """Detect dice using contour detection (showed best results in debug)."""

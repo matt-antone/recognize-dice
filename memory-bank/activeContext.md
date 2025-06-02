@@ -26,53 +26,117 @@
 
 - `python3 main.py` → **Raspberry Pi 3 ONLY**
 - `python3 test_camera.py` → **Raspberry Pi 3 ONLY**
+- `python3 test_debug_detection.py` → **Raspberry Pi 3 ONLY** (debug analysis)
+- `python3 test_improved_detection.py` → **Raspberry Pi 3 ONLY** (quick test)
 - `python3 test_fallback.py` → **macOS development testing** ✅
 
 ## Current Work Focus
 
-**Phase**: Foundation Complete - Ready for Pi Deployment
-**Target Hardware**: Raspberry Pi 3 (optimized)
-**Immediate Goal**: Deploy to Pi 3 and test camera integration
+**Phase**: Detection Algorithm Optimization - ACTIVE
+**Target Hardware**: Raspberry Pi 3 with AI Camera (IMX500) ✅
+**Current Issue**: Computer vision detection accuracy needs improvement
+**Immediate Goal**: Test improved detection algorithm based on debug analysis
 
 ## Recent Accomplishments ✅
+
+### Foundation Complete
 
 - **Complete application framework** built and Pi 3 optimized
 - **Cross-platform development** workflow established
 - **macOS development testing** confirmed working with fallback detection
 - **Dependency management** resolved for both platforms
+- **AI Camera Integration** ✅ Successfully configured IMX500 with 43.4 FPS capability
 - **Dual camera support** (picamera2/picamera) with graceful fallback
 - **Lightweight GUI** using Tkinter for Pi 3 memory constraints
 - **Configuration system** with dynamic performance adjustment
 - **Robust error handling** and logging throughout
 - **Testing infrastructure** with platform-appropriate tests
-- **Comprehensive documentation** including .cursorrules and memory bank
+
+### Debug Analysis Complete ✅
+
+- **Comprehensive debug framework** created with `test_debug_detection.py`
+- **Detection issues identified**: HoughCircles problematic, contour/blob detection promising
+- **Image processing insights**: CLAHE reducing contrast, over-smoothing issues
+- **Performance validation**: Edge detection only 0.5-0.7% (too low for circles)
+
+### Detection Algorithm Improved ✅
+
+- **New fallback detection** based on debug findings
+- **Contour detection priority**: Best results in debug (exactly 1 dice per frame)
+- **Blob detection integration**: Consistent 1-2 detections per frame
+- **Removed problematic methods**: No more HoughCircles noise (35-44 false positives)
+- **Enhanced dice value estimation**: Dot counting with fallback heuristics
 
 ## Current Architecture Status
 
-- **Camera Interface**: ✅ Complete with dual Pi compatibility (untested on hardware)
-- **Detection Pipeline**: ✅ Framework ready, fallback detection confirmed working
-- **GUI System**: ✅ Functional Tkinter interface (ready for Pi testing)
+- **Camera Interface**: ✅ Complete and verified working with AI Camera (IMX500)
+- **Detection Pipeline**: ✅ Improved algorithm ready for testing
+- **GUI System**: ✅ Functional Tkinter interface
 - **Performance Monitoring**: ✅ FPS, memory, thermal tracking
 - **Configuration Management**: ✅ Pi 3 optimized settings
-- **Cross-platform Development**: ✅ macOS dev → Pi 3 deployment workflow
+- **Debug Infrastructure**: ✅ Comprehensive analysis tools
+
+## Detection Algorithm Insights - CRITICAL
+
+### Debug Analysis Results
+
+- **HoughCircles Issues**:
+
+  - Conservative params: 0-1 detections (under-detection)
+  - Very sensitive params: 35-44 detections (massive over-detection/noise)
+  - Edge detection only 0.5-0.7% pixels (too low for reliable circle detection)
+
+- **Promising Methods**:
+
+  - **Contour Detection**: Exactly 1 dice-shaped contour per frame ✅
+  - **Blob Detection**: Consistent 1-2 blobs per frame ✅
+  - **Combined Approach**: Much more reliable than single method
+
+- **Image Processing Insights**:
+  - CLAHE reducing contrast (-4.5 to -5.4) - removed from pipeline
+  - Images somewhat dark (mean ~70-75) but good natural contrast
+  - Over-smoothing was degrading edge detection
+
+### Improved Algorithm Features
+
+- **Dual detection**: Contour + blob detection with deduplication
+- **Lightweight preprocessing**: Bilateral filter only, no CLAHE
+- **Smart dice value estimation**: Dot counting with brightness fallbacks
+- **Reasonable confidence scoring**: 0.6-0.7 for computer vision methods
+- **Area and aspect ratio filtering**: Prevents false positives
 
 ## Next Steps (Priority Order)
 
-1. **Pi Deployment**: Transfer project to Raspberry Pi 3 hardware
-2. **Camera Testing**: Run `test_camera.py` on Pi to verify camera interface
-3. **Full Application Test**: Run `main.py` on Pi with actual camera
+1. **Test Improved Detection**: Run `python3 test_improved_detection.py` on Pi
+2. **Validate Results**: Compare with debug analysis baseline
+3. **Integrate with Main App**: Update main.py to use improved detection
 4. **Model Integration**: Convert reference model to TensorFlow Lite (can do on macOS)
-5. **Performance Optimization**: Fine-tune based on real Pi 3 performance
+5. **Performance Optimization**: Fine-tune based on real results
 
 ## Active Decisions - CONFIRMED
 
-- **Development Platform**: ✅ macOS for code development only
-- **Target Platform**: ✅ Raspberry Pi 3 for execution only
-- **GUI Framework**: ✅ Tkinter confirmed working for Pi 3
-- **Model Strategy**: ✅ TensorFlow Lite infrastructure ready
-- **Performance**: ✅ 3-5 FPS target with frame skipping
-- **Memory Management**: ✅ Streaming architecture implemented
-- **Camera Strategy**: ✅ Dual compatibility (picamera2/picamera) ready for Pi testing
+### Detection Strategy - UPDATED
+
+- **Primary**: Improved computer vision (contour + blob detection) ✅
+- **Secondary**: TensorFlow Lite model when available
+- **Approach**: Evidence-based optimization from debug analysis
+- **Confidence**: Higher due to debug-driven improvements
+
+### Hardware Integration - VERIFIED
+
+- **AI Camera (IMX500)**: ✅ Working perfectly with 43.4 FPS capability
+- **Performance**: Exceeds Pi 3 targets (3-5 FPS) significantly
+- **Configuration**: Multiple fallback approaches for compatibility
+
+## Current Working Status
+
+### On Raspberry Pi 3 - READY FOR IMPROVED TESTING
+
+- **Camera Interface**: ✅ Verified working with AI Camera
+- **Debug Infrastructure**: ✅ Comprehensive analysis complete
+- **Improved Detection**: ✅ Algorithm updated based on findings
+- **Quick Test**: ✅ `test_improved_detection.py` ready
+- **Full Integration**: Ready for main app update
 
 ## Testing Status by Platform
 
@@ -81,33 +145,31 @@
 - **Core Dependencies**: opencv-python, numpy, PIL, tkinter ✅
 - **Fallback Detection**: Working - detected 3 simulated dice ✅
 - **Framework Logic**: All modules import and initialize correctly ✅
-- **GUI Components**: Tkinter confirmed working ✅
-- **Camera Libraries**: Correctly excluded (not needed) ✅
+- **Improved Algorithm**: Ready for Pi testing
 
-### Raspberry Pi 3 Testing (Pending Hardware)
+### Raspberry Pi 3 Testing - IN PROGRESS
 
-- **Camera Interface**: Ready for testing
-- **Full Application**: Ready for deployment
-- **Performance Validation**: Needs Pi 3 hardware measurement
-- **ML Model Integration**: Framework ready
+- **Camera Interface**: ✅ Verified working (43.4 FPS)
+- **Debug Analysis**: ✅ Complete with detailed findings
+- **Improved Detection**: 🔄 Ready for testing
+- **Full Application**: Ready for improved algorithm integration
 
-## Current Working Status
+## Debug Session Results - REFERENCE
 
-The application framework is **complete and ready for Pi deployment**:
+### Frame Analysis Summary
 
-### Development Environment (macOS)
+- **Frames Analyzed**: 3 frames with comprehensive debugging
+- **HoughCircles**: 35-44 false positives (unreliable)
+- **Blob Detection**: 1-2 consistent detections (reliable)
+- **Contour Detection**: Exactly 1 dice per frame (most reliable)
+- **Edge Detection**: 0.5-0.7% pixels (insufficient for circles)
 
-- Framework development and testing ✅
-- Fallback detection validation ✅
-- Code editing and version control ✅
-- Platform-specific installer working ✅
+### Key Insights Applied
 
-### Production Environment (Pi 3) - Ready for Testing
-
-- Complete application with camera interface
-- Pi 3 optimized configurations
-- Performance monitoring and thermal management
-- TensorFlow Lite framework ready
+- **Removed CLAHE**: Was reducing contrast
+- **Lighter filtering**: Bilateral filter only
+- **Combined methods**: Contour + blob for robustness
+- **Better thresholds**: Area and aspect ratio filtering
 
 ## Development Workflow Commands
 
@@ -123,7 +185,7 @@ python3 install_deps.py
 # Edit code, commit changes
 ```
 
-### On Raspberry Pi 3 (Production)
+### On Raspberry Pi 3 (Production & Testing)
 
 ```bash
 # Setup environment
@@ -132,20 +194,25 @@ python3 install_deps.py
 # Test camera hardware
 python3 test_camera.py
 
+# Debug detection (comprehensive)
+python3 test_debug_detection.py
+
+# Test improved detection (quick)
+python3 test_improved_detection.py
+
 # Run full application
 python3 main.py
 ```
 
-## Current Blockers - NONE for Development
+## Current Blockers - NONE
 
-Framework is complete for Pi deployment. Ready to test on actual hardware.
+All infrastructure ready. Need to test improved detection algorithm.
 
-## Success Metrics for Pi Deployment
+## Success Metrics for Improved Detection
 
-- **Camera Interface**: Camera detected and frames captured
-- **Application Startup**: <15 seconds on Pi 3
-- **Fallback Detection**: Working on Pi (as confirmed on macOS)
-- **GUI Functionality**: Interface responsive on Pi
-- **Performance**: 3-5 FPS achieved on Pi 3 hardware
+- **Detection Count**: 1-3 dice consistently detected (not 35-44 false positives)
+- **Stability**: Consistent results across multiple frames
+- **Accuracy**: Better dice value estimation than previous algorithm
+- **Performance**: Maintain 3-5+ FPS on Pi 3
 
-**Status**: Development foundation solid. Ready for Raspberry Pi 3 hardware deployment and testing.
+**Status**: Debug analysis complete, improved algorithm ready for testing. Evidence-based optimization should significantly improve detection accuracy.
