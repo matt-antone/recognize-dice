@@ -11,13 +11,25 @@ from pathlib import Path
 
 try:
     from picamera2 import Picamera2
-    import tensorflow as tf
+    # Try TensorFlow first, then fall back to tflite_runtime
+    try:
+        import tensorflow as tf
+    except ImportError:
+        import tflite_runtime.interpreter as tflite
+        # Create a minimal tf module for compatibility
+        class TFCompat:
+            class lite:
+                @staticmethod
+                def Interpreter(model_path):
+                    return tflite.Interpreter(model_path)
+        tf = TFCompat()
+    
     CAMERA_AVAILABLE = True
     print("✅ Camera and TensorFlow Lite available")
 except ImportError as e:
     print(f"❌ Missing dependencies: {e}")
-    print("📦 Install: sudo apt install python3-picamera2")
-    print("📦 Install: pip install tensorflow-lite-runtime")
+    print("📦 Install: sudo apt install python3-picamera2 python3-opencv")
+    print("📦 Install: pip3 install tflite-runtime")
     exit(1)
 
 def load_model():

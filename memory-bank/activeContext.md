@@ -101,8 +101,42 @@ rpicam-hello --post-process-file /usr/share/rpi-camera-assets/imx500_mobilenet_s
 1. **✅ Install IMX500 firmware** on Pi 3 - COMPLETED
 2. **✅ Test basic AI functionality** with MobileNet - COMPLETED
 3. **✅ Organize project structure** - COMPLETED
-4. **🔄 Train custom model** with Edge Impulse - IN PROGRESS
-5. **🔄 Deploy and test** dice-specific model - PENDING
+4. **✅ Train custom model** with Edge Impulse - COMPLETED (dice_classifier_v2.tflite)
+5. **🔄 Deploy and test** dice-specific model on Pi 3 - IN PROGRESS
+
+## Current Pi 3 Deployment Status
+
+### **Virtual Environment Required** ⚠️
+
+**Important:** Modern Raspberry Pi OS has `externally-managed-environment` restriction.
+
+**Setup Required on Pi 3:**
+
+```bash
+# Create virtual environment for TensorFlow Lite
+python3 -m venv ~/dice_env
+source ~/dice_env/bin/activate
+pip install tflite-runtime
+
+# System packages (already installed)
+sudo apt install python3-picamera2 python3-opencv python3-numpy
+```
+
+**Usage Pattern:**
+
+```bash
+# Every time before running dice detection:
+source ~/dice_env/bin/activate
+python3 test_dice_ai.py
+deactivate  # when done
+```
+
+### **Model Successfully Deployed**
+
+- **Model**: `dice_classifier_v2.tflite` (63MB)
+- **Input**: 160×160×3 RGB images
+- **Output**: 448 classes (object detection format)
+- **Performance**: ~78ms inference on development machine
 
 ## Recent Accomplishments ✅
 
