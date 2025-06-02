@@ -179,7 +179,7 @@ class FallbackDetection:
     def _estimate_dice_value(self, dice_region: np.ndarray) -> int:
         """
         Estimate dice value by analyzing dots/pips in the dice region.
-        This is a simple approach - can be enhanced later.
+        Fixed based on debug analysis showing area thresholds were wrong.
         """
         if dice_region.size == 0:
             return 1
@@ -198,10 +198,13 @@ class FallbackDetection:
         # Find contours of potential dots
         dot_contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
+        # FIXED: Much more realistic area thresholds for individual pips
+        # Individual pips should be small relative to dice face
+        min_dot_area = 5  # Minimum pip size
+        max_dot_area = dice_region.size // 25  # Pips are smaller than 1/25 of dice face
+        
         # Count reasonably sized circular contours
         dot_count = 0
-        min_dot_area = 10
-        max_dot_area = dice_region.size // 10  # Dots shouldn't be too large
         
         for contour in dot_contours:
             area = cv2.contourArea(contour)
@@ -210,7 +213,7 @@ class FallbackDetection:
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.4:  # Reasonably circular
+                    if circularity > 0.3:  # Slightly more lenient circularity
                         dot_count += 1
         
         # Also try inverted (in case dots are light on dark)
@@ -225,26 +228,32 @@ class FallbackDetection:
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.4:
+                    if circularity > 0.3:
                         dot_count_inv += 1
         
         # Take the count that makes more sense (1-6 range)
         final_count = dot_count if 1 <= dot_count <= 6 else dot_count_inv
         
-        # If still not in valid range, make reasonable guess based on intensity
+        # If still not in valid range, use improved brightness/pattern fallback
         if not (1 <= final_count <= 6):
-            # Simple heuristic based on average brightness
+            # IMPROVED: More sophisticated fallback based on dice patterns
             avg_brightness = np.mean(dice_region)
-            # Darker regions might have more dots (higher values)
-            if avg_brightness < 60:
-                final_count = 5
-            elif avg_brightness < 80:
-                final_count = 4
-            elif avg_brightness < 100:
-                final_count = 3
-            elif avg_brightness < 120:
-                final_count = 2
-            else:
+            brightness_std = np.std(dice_region)
+            
+            # High contrast (many dots) vs low contrast (few dots)
+            if brightness_std > 60:  # High contrast - likely multiple dots
+                if avg_brightness < 100:  # Dark overall - many dark dots
+                    final_count = 6
+                elif avg_brightness < 130:
+                    final_count = 5  
+                else:
+                    final_count = 4
+            elif brightness_std > 40:  # Medium contrast
+                if avg_brightness < 120:
+                    final_count = 3
+                else:
+                    final_count = 2
+            else:  # Low contrast - likely single dot or empty
                 final_count = 1
         
         return max(1, min(6, final_count))
