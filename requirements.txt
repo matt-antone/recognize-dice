@@ -1,27 +1,29 @@
-# Core Computer Vision (required)
-opencv-python>=4.5.0
-numpy>=1.21.0
+# D6 Dice Recognition with AI Camera
+# Core dependencies for AI-accelerated dice detection
 
-# GUI and Image Processing
-# Note: On Raspberry Pi OS, also run: sudo apt install python3-pil.imagetk
-pillow>=8.0.0
+# Computer Vision & AI
+opencv-python>=4.8.0
+numpy>=1.24.0
+tensorflow-lite-runtime>=2.13.0  # For Pi deployment
+pillow>=9.5.0
 
-# Raspberry Pi Camera (required for Pi)
-picamera2>=0.3.0
+# Camera Interface (Pi-specific, auto-skipped on dev platforms)
+picamera2>=0.3.12; platform_machine == 'aarch64'
 
-# TensorFlow Lite - Platform specific installations
-# For Raspberry Pi 3: tensorflow-lite-runtime>=2.8.0
-# For development on other platforms, use regular tensorflow
-# tensorflow>=2.8.0
+# GUI Framework
+# Note: On Raspberry Pi, install via apt: sudo apt install python3-tk python3-pil.imagetk
 
-# GUI (using Tkinter - built into Python, no extra install needed)
-# Note: Tkinter is included with Python standard library
+# Development/Testing Dependencies (optional)
+# Uncomment for development environment:
+# matplotlib>=3.7.0
+# jupyter>=1.0.0
+# pytest>=7.0.0
 
-# Optional: For older camera modules on Pi
-# picamera>=1.13
+# Alternative TensorFlow for development platforms (choose one):
+# tensorflow>=2.13.0  # Full TensorFlow for macOS/Windows/x86 Linux
 
-# Development and utilities
-setuptools>=45.0.0
+# System dependencies (install via apt on Raspberry Pi):
+# sudo apt install python3-tk python3-pil.imagetk libcamera-dev
 
-# Optional: For performance monitoring
-psutil>=5.8.0 
+# Edge Impulse Integration (optional, for model deployment)
+# edge-impulse-linux>=1.0.0 

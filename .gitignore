@@ -136,7 +136,6 @@ dmypy.json
 *.pb
 *.h5
 *.hdf5
-models/
 checkpoints/
 
 # OpenCV/Image processing temporary files
