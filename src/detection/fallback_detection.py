@@ -200,8 +200,8 @@ class FallbackDetection:
         
         # FIXED: Much more realistic area thresholds for individual pips
         # Individual pips should be small relative to dice face
-        min_dot_area = 5  # Minimum pip size
-        max_dot_area = dice_region.size // 25  # Pips are smaller than 1/25 of dice face
+        min_dot_area = 8  # Slightly higher minimum to filter noise
+        max_dot_area = dice_region.size // 30  # Slightly smaller maximum (was //25)
         
         # Count reasonably sized circular contours
         dot_count = 0
@@ -213,7 +213,7 @@ class FallbackDetection:
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.3:  # Slightly more lenient circularity
+                    if circularity > 0.35:  # Slightly more strict than 0.3
                         dot_count += 1
         
         # Also try inverted (in case dots are light on dark)
@@ -228,7 +228,7 @@ class FallbackDetection:
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.3:
+                    if circularity > 0.35:
                         dot_count_inv += 1
         
         # Take the count that makes more sense (1-6 range)
