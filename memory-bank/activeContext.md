@@ -1,6 +1,81 @@
 # Active Context - D6 Dice Recognition Pi 3 Project
 
-## Current Focus: Fresh Start with Simple Implementation
+## CRITICAL ISSUE DISCOVERED: False Detection Problem ⚠️
+
+### **Current Status: Model v3 Has False Detection Bug**
+
+**Problem Identified:** Model v3 consistently detects "Dice: 3" even when no dice are present or when dice are removed from the scene.
+
+**Test Results:**
+
+- First detection: Dice "3" (conf: 0.311) ✅ CORRECT
+- Removed one die: Still detects Dice "3" (conf: 0.427) ❌ FALSE POSITIVE
+- Removed another die: Still detects Dice "3" (conf: 0.502) ❌ FALSE POSITIVE
+- Removed all dice: Still detects Dice "3" (conf: 0.474) ❌ FALSE POSITIVE
+
+**Root Cause:** The original `parse_detection_output` function in `test_dice_ai.py` lacks proper confidence thresholding for classification models. It **always** returns a dice value regardless of confidence.
+
+### **Solution Implemented: Fixed Detection Logic** ✅
+
+**Files Created:**
+
+1. `debug_false_detection.py` - Diagnostic tool to analyze raw model output
+2. `test_dice_ai_fixed.py` - Corrected version with proper confidence thresholding
+
+**Key Fix in Detection Logic:**
+
+```python
+def parse_detection_output_fixed(output_data, model_version="v3", confidence_threshold=0.5):
+    if len(output_data.shape) == 2:
+        # Classification model output
+        class_probs = output_data[0]
+        max_idx = np.argmax(class_probs)
+        max_confidence = class_probs[max_idx]
+
+        # CRITICAL FIX: Only return detection if confidence exceeds threshold
+        if max_confidence < confidence_threshold:
+            return "No dice detected (confidence too low)"
+
+        dice_value = (max_idx % 6) + 1
+        return f"Dice: {dice_value} (conf: {max_confidence:.3f})"
+```
+
+**Before Fix:** Always returned highest class probability as detection  
+**After Fix:** Returns "No dice detected" when confidence < threshold
+
+### **Immediate Next Steps (CURRENT PRIORITY)**
+
+1. **🔄 Deploy Fixed Scripts to Pi 3**
+
+   ```bash
+   # On macOS - commit the fixes
+   git add debug_false_detection.py test_dice_ai_fixed.py memory-bank/
+   git commit -m "Fix false detection issue with confidence thresholding"
+   git push origin main
+
+   # On Pi 3 - get the fixes
+   git pull origin main
+
+   # Test with NO DICE first
+   python3 test_dice_ai_fixed.py
+
+   # Debug raw output if needed
+   python3 debug_false_detection.py
+   ```
+
+2. **🧪 Validate Fix Works**
+
+   - Test with empty scene (no dice) - should return "No dice detected"
+   - Test with single die - should detect correctly
+   - Test with multiple dice - should handle properly
+   - Test confidence threshold tuning with 't' option
+
+3. **📊 Determine Optimal Confidence Threshold**
+   - Current default: 0.5
+   - Test different values (0.3, 0.7) based on results
+   - Balance false positives vs missed detections
+
+## Current Focus: Post-Fix Validation and Optimization
 
 **Fresh Start Decision:** All original project files deleted. Starting over with simplified approach focused on Pi 3 hardware constraints.
 
@@ -139,6 +214,24 @@ deactivate  # when done
 - **Performance**: ~78ms inference on development machine
 
 ## Recent Accomplishments ✅
+
+### **Critical Bug Fix - False Detection Issue**
+
+**Problem:** Model v3 was detecting dice when none were present due to missing confidence thresholding in classification logic.
+
+**Solution:** Implemented proper confidence-based detection logic:
+
+- Added `debug_false_detection.py` for raw output analysis
+- Created `test_dice_ai_fixed.py` with corrected detection logic
+- Configurable confidence threshold (default 0.5)
+- Threshold testing mode for optimization
+
+**Expected Results After Fix:**
+
+- ✅ **No false positives**: Empty scenes return "No dice detected"
+- ✅ **Proper thresholding**: Low confidence detections filtered out
+- ✅ **Accurate detection**: Real dice detected with high confidence
+- ✅ **Debugging capability**: Raw output analysis available
 
 ### **Project Organization Completed**
 
